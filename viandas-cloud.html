@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestión de Viandas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --paper:#FBF7EF;
+    --card:#FFFFFF;
+    --ink:#241F17;
+    --ink-soft:#6B6255;
+    --line:#E7DCC7;
+    --line-soft:#F1E9D8;
+    --accent:#E2792B;
+    --accent-dark:#B85A1B;
+    --accent-tint:#FCE9D7;
+    --pine:#2F4B3C;
+    --pine-tint:#E4ECE6;
+    --olive:#5C7A32;
+    --olive-tint:#E9F0DC;
+    --brick:#B23A2E;
+    --brick-tint:#F6E1DE;
+    --font-display:'Fraunces', serif;
+    --font-body:'Work Sans', sans-serif;
+    --font-mono:'IBM Plex Mono', monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);}
+  #app{min-height:100vh;display:flex;flex-direction:column;}
+
+  /* header */
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 28px;border-bottom:1px solid var(--line);background:var(--paper);}
+  .brand{display:flex;align-items:baseline;gap:10px;}
+  .brand-mark{width:34px;height:34px;border-radius:8px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:17px;flex:none;}
+  .brand-name-input{font-family:var(--font-display);font-weight:600;font-size:20px;border:none;background:transparent;color:var(--ink);padding:2px 4px;border-radius:6px;min-width:120px;}
+  .brand-name-input:hover, .brand-name-input:focus{background:var(--line-soft);outline:none;}
+  .topbar-date{font-family:var(--font-mono);font-size:13px;color:var(--ink-soft);text-transform:capitalize;}
+
+  /* layout */
+  .layout{display:flex;flex:1;min-height:0;}
+  nav.sidebar{width:196px;flex:none;border-right:1px solid var(--line);padding:20px 12px;display:flex;flex-direction:column;gap:4px;}
+  nav.sidebar button{display:flex;align-items:center;gap:10px;text-align:left;border:none;background:transparent;padding:11px 14px;border-radius:9px;font-family:var(--font-body);font-size:14.5px;font-weight:500;color:var(--ink-soft);cursor:pointer;}
+  nav.sidebar button:hover{background:var(--line-soft);color:var(--ink);}
+  nav.sidebar button.active{background:var(--pine);color:#fff;}
+  nav.sidebar .tab-dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.55;flex:none;}
+  main{flex:1;min-width:0;padding:28px 32px 60px;overflow-y:auto;}
+
+  h1.page-title{font-family:var(--font-display);font-size:26px;font-weight:600;margin:0 0 4px;}
+  p.page-sub{color:var(--ink-soft);margin:0 0 24px;font-size:14px;}
+
+  /* generic */
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .btn{font-family:var(--font-body);font-size:13.5px;font-weight:600;border-radius:8px;padding:9px 16px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;}
+  .btn:hover{border-color:var(--ink-soft);}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn-primary:hover{background:var(--accent-dark);border-color:var(--accent-dark);}
+  .btn-ghost{background:transparent;border-color:transparent;color:var(--ink-soft);}
+  .btn-ghost:hover{background:var(--line-soft);color:var(--ink);}
+  .btn-danger{color:var(--brick);}
+  .btn.small{padding:6px 11px;font-size:12.5px;border-radius:7px;}
+  input[type=text], input[type=number], input[type=tel], input[type=date], select, textarea{
+    font-family:var(--font-body);font-size:14px;padding:9px 11px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink);width:100%;
+  }
+  input:focus, select:focus, textarea:focus{outline:2px solid var(--accent-tint);border-color:var(--accent);}
+  label.field-label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:5px;}
+  .field{margin-bottom:14px;}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:6px 13px;border-radius:20px;font-size:13px;font-weight:600;border:1px solid var(--line);background:#fff;color:var(--ink-soft);cursor:pointer;}
+  .chip.active{background:var(--pine);border-color:var(--pine);color:#fff;}
+  .badge{display:inline-block;padding:3px 9px;border-radius:6px;font-size:11.5px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;}
+  .badge-empresa{background:var(--pine-tint);color:var(--pine);}
+  .badge-casual{background:var(--line-soft);color:var(--ink-soft);}
+  .badge-pack{background:var(--accent-tint);color:var(--accent-dark);}
+
+  /* metric cards */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:26px;}
+  .metric{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
+  .metric .m-label{font-size:12.5px;color:var(--ink-soft);font-weight:600;margin-bottom:8px;}
+  .metric .m-value{font-family:var(--font-mono);font-size:28px;font-weight:600;color:var(--ink);}
+  .metric.alert .m-value{color:var(--brick);}
+  .metric.good .m-value{color:var(--olive);}
+
+  .section-title{font-family:var(--font-display);font-size:17px;font-weight:600;margin:28px 0 12px;}
+
+  /* client cards */
+  .client-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px;}
+  .client-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 17px;display:flex;flex-direction:column;gap:8px;}
+  .client-card.inactive{opacity:.55;}
+  .client-card .ct-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .client-card .ct-name{font-weight:600;font-size:15.5px;}
+  .client-card .ct-sub{font-size:12.5px;color:var(--ink-soft);}
+  .client-card .ct-actions{display:flex;gap:6px;}
+  .icon-btn{border:none;background:transparent;color:var(--ink-soft);cursor:pointer;font-size:15px;padding:4px 6px;border-radius:6px;}
+  .icon-btn:hover{background:var(--line-soft);color:var(--ink);}
+
+  /* ficha grid (signature element) */
+  .ficha-grid{display:flex;flex-wrap:wrap;gap:3px;margin:4px 0;}
+  .ficha{width:11px;height:11px;border-radius:2px;border:1px solid var(--line);background:#fff;}
+  .ficha.usada{background:var(--olive);border-color:var(--olive);}
+  .ficha-label{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);}
+
+  /* entregas table */
+  .entrega-row{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:8px;}
+  .entrega-row .er-name{flex:1;min-width:120px;}
+  .entrega-row .er-name .er-nombre{font-weight:600;font-size:14.5px;}
+  .entrega-row .er-name .er-meta{font-size:12px;color:var(--ink-soft);margin-top:2px;}
+  .meal-toggle{font-family:var(--font-body);font-size:12.5px;font-weight:600;padding:8px 13px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink-soft);cursor:pointer;min-width:118px;text-align:center;}
+  .meal-toggle.entregado{background:var(--olive-tint);border-color:var(--olive);color:var(--olive);}
+  .meal-toggle.saltado{background:var(--brick-tint);border-color:var(--brick);color:var(--brick);}
+
+  /* stock */
+  .stock-form{display:flex;align-items:flex-end;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:24px;flex-wrap:wrap;}
+  .stock-form .field{margin-bottom:0;min-width:150px;}
+  table.data-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  table.data-table th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);padding:10px 14px;border-bottom:1px solid var(--line);background:var(--line-soft);}
+  table.data-table td{padding:11px 14px;border-bottom:1px solid var(--line-soft);font-size:14px;}
+  table.data-table td.num{font-family:var(--font-mono);}
+  table.data-table tr:last-child td{border-bottom:none;}
+
+  .empty-state{padding:40px 20px;text-align:center;color:var(--ink-soft);border:1px dashed var(--line);border-radius:12px;}
+  .empty-state .es-title{font-family:var(--font-display);font-size:17px;color:var(--ink);margin-bottom:6px;}
+
+  /* login */
+  #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .login-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:32px 30px;width:100%;max-width:360px;}
+  .login-card h1{font-family:var(--font-display);font-size:22px;margin:0 0 4px;}
+  .login-card p{color:var(--ink-soft);font-size:13.5px;margin:0 0 22px;}
+  .login-error{background:var(--brick-tint);color:var(--brick);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:14px;}
+  .login-card .btn-primary{width:100%;padding:11px;font-size:14.5px;margin-top:6px;}
+
+
+  /* modal */
+  .modal-backdrop{position:fixed;inset:0;background:rgba(36,31,23,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
+  .modal-box{background:var(--paper);border-radius:14px;padding:24px 26px;width:100%;max-width:440px;max-height:88vh;overflow-y:auto;border:1px solid var(--line);}
+  .modal-box h2{font-family:var(--font-display);font-size:19px;margin:0 0 16px;}
+  .modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+  .hidden{display:none !important;}
+
+  @media (max-width:760px){
+    .layout{flex-direction:column;}
+    nav.sidebar{width:100%;flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid var(--line);padding:10px 14px;}
+    nav.sidebar button{white-space:nowrap;}
+    main{padding:20px 16px 50px;}
+    .topbar{padding:14px 16px;}
+  }
+</style>
+</head>
+<body>
+<div id="login-screen">
+  <div class="login-card">
+    <h1>Gestión de Viandas</h1>
+    <p>Ingresá con el usuario que te dieron para administrar el negocio.</p>
+    <div id="login-error" class="login-error hidden"></div>
+    <form id="login-form">
+      <div class="field">
+        <label class="field-label">Email</label>
+        <input type="text" id="login-email" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label class="field-label">Contraseña</label>
+        <input type="password" id="login-password" autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primary" type="submit" id="login-submit">Ingresar</button>
+    </form>
+  </div>
+</div>
+
+<div id="app-screen" class="hidden">
+  <div id="app">
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-mark">V</div>
+        <input id="negocio-nombre" class="brand-name-input" type="text" value="Mi Vianda" aria-label="Nombre del negocio">
+      </div>
+      <div class="row" style="gap:14px;">
+        <span class="topbar-date" id="user-email" style="color:var(--ink-soft);"></span>
+        <button class="btn btn-ghost small" id="btn-backup" style="padding:8px 14px;">Copia de seguridad</button>
+        <button class="btn btn-ghost small" id="btn-logout" style="padding:8px 14px;">Salir</button>
+        <div class="topbar-date" id="topbar-date"></div>
+      </div>
+    </div>
+    <div class="layout">
+      <nav class="sidebar" id="sidebar"></nav>
+      <main id="main"></main>
+    </div>
+  </div>
+</div>
+<div id="modal-root"></div>
+
+<script>
+/* ============================================================
+   GESTIÓN DE VIANDAS — app de una sola página
+   Para agregar una pestaña nueva:
+     1) Escribir una función renderMiPestaña(container){ ... }
+     2) Agregar { id:'mi-id', label:'Mi Pestaña', render: renderMiPestaña } al arreglo TABS
+   Eso es todo — aparece sola en el menú lateral.
+============================================================= */
+
+/* ============================================================
+   CONFIGURACIÓN DE SUPABASE
+   Completar estos dos valores con los de tu proyecto:
+   Supabase → Project Settings → API → Project URL / anon public key
+============================================================= */
+const SUPABASE_URL = 'dhgcqmfvqtkzdplwztfh';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoZ2NxbWZ2cXRremRwbHd6dGZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyODY3MDksImV4cCI6MjA5ODg2MjcwOX0.5i7SC9EosNVtk42IYjojT1CD-TtVYUSMEag_48ty-d8';
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let currentSession = null;
+
+let state = {
+  negocioNombre: 'Mi Vianda',
+  clientes: [],
+  entregas: [],
+  stock: []
+};
+
+let activeTab = 'dashboard';
+let entregaFecha = todayStr();
+let entregaFiltro = 'todos';
+let clienteFiltro = 'todos';
+let clienteBusqueda = '';
+let stockFecha = todayStr();
+
+/* ---------- utilidades ---------- */
+function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
+function todayStr(){
+  const d = new Date();
+  const tz = d.getTimezoneOffset()*60000;
+  return new Date(d - tz).toISOString().slice(0,10);
+}
+function formatFechaLarga(str){
+  const [y,m,d] = str.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  return dt.toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long' });
+}
+function formatFechaCorta(str){
+  const [y,m,d] = str.split('-').map(Number);
+  return `${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`;
+}
+function escapeHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- mapeo entre columnas de la base y objetos locales ---------- */
+function mapClienteFromDB(row){
+  return {
+    id: row.id, nombre: row.nombre, tipo: row.tipo,
+    empresaNombre: row.empresa_nombre || '', consumo: row.consumo,
+    packComprado: row.pack_comprado || 0, telefono: row.telefono || '',
+    notas: row.notas || '', activo: row.activo
+  };
+}
+function mapEntregaFromDB(row){
+  return { id: row.id, clienteId: row.cliente_id, fecha: row.fecha, almuerzo: row.almuerzo, cena: row.cena };
+}
+
+async function cargarDatos(){
+  const [clientesRes, entregasRes, stockRes, configRes] = await Promise.all([
+    sb.from('clientes').select('*').order('nombre'),
+    sb.from('entregas').select('*'),
+    sb.from('stock').select('*'),
+    sb.from('negocio_config').select('*').maybeSingle()
+  ]);
+  if(clientesRes.error) console.error(clientesRes.error);
+  if(entregasRes.error) console.error(entregasRes.error);
+  if(stockRes.error) console.error(stockRes.error);
+  state.clientes = (clientesRes.data || []).map(mapClienteFromDB);
+  state.entregas = (entregasRes.data || []).map(mapEntregaFromDB);
+  state.stock = (stockRes.data || []).map(r => ({ fecha: r.fecha, preparadas: r.preparadas }));
+  state.negocioNombre = (configRes.data && configRes.data.nombre) || 'Mi Vianda';
+}
+
+/* ---------- lógica de negocio ---------- */
+function clientesActivos(){ return state.clientes.filter(c => c.activo); }
+
+function slotsEsperados(cliente){
+  return cliente.consumo === 'almuerzo_cena' ? 2 : 1;
+}
+
+function getEntrega(clienteId, fecha){
+  return state.entregas.find(e => e.clienteId === clienteId && e.fecha === fecha);
+}
+
+function cicloEstado(actual){
+  if(actual === undefined || actual === null) return 'entregado';
+  if(actual === 'entregado') return 'saltado';
+  return undefined;
+}
+
+async function setEntregaEstado(clienteId, fecha, meal){
+  const e = getEntrega(clienteId, fecha);
+  const nuevoValor = cicloEstado(e ? e[meal] : undefined);
+  const payload = {
+    cliente_id: clienteId,
+    fecha,
+    almuerzo: meal === 'almuerzo' ? (nuevoValor ?? null) : (e ? (e.almuerzo ?? null) : null),
+    cena: meal === 'cena' ? (nuevoValor ?? null) : (e ? (e.cena ?? null) : null)
+  };
+  const { data, error } = await sb.from('entregas')
+    .upsert(payload, { onConflict: 'cliente_id,fecha' })
+    .select().single();
+  if(error){ alert('No se pudo guardar la entrega: ' + error.message); return; }
+  if(e){ e.almuerzo = data.almuerzo; e.cena = data.cena; }
+  else{ state.entregas.push(mapEntregaFromDB(data)); }
+  render();
+}
+
+function totalEntregadas(clienteId){
+  return state.entregas
+    .filter(e => e.clienteId === clienteId)
+    .reduce((sum,e) => sum + (e.almuerzo==='entregado'?1:0) + (e.cena==='entregado'?1:0), 0);
+}
+
+function restantePack(cliente){
+  return (cliente.packComprado || 0) - totalEntregadas(cliente.id);
+}
+
+function entregasDeFecha(fecha){
+  return state.entregas.filter(e => e.fecha === fecha);
+}
+
+function entregadasEnFecha(fecha){
+  return entregasDeFecha(fecha).reduce((sum,e) => sum + (e.almuerzo==='entregado'?1:0) + (e.cena==='entregado'?1:0), 0);
+}
+function saltadasEnFecha(fecha){
+  return entregasDeFecha(fecha).reduce((sum,e) => sum + (e.almuerzo==='saltado'?1:0) + (e.cena==='saltado'?1:0), 0);
+}
+function esperadasEnFecha(fecha){
+  return clientesActivos().reduce((sum,c) => sum + slotsEsperados(c), 0);
+}
+
+/* ---------- render raíz ---------- */
+const TABS = [
+  { id:'dashboard', label:'Resumen', render: renderDashboard },
+  { id:'clientes', label:'Clientes', render: renderClientes },
+  { id:'entregas', label:'Entregas', render: renderEntregas },
+  { id:'stock', label:'Stock', render: renderStock },
+];
+
+function renderSidebar(){
+  const nav = document.getElementById('sidebar');
+  nav.innerHTML = TABS.map(t => `
+    <button data-tab="${t.id}" class="${activeTab===t.id?'active':''}">
+      <span class="tab-dot"></span>${escapeHtml(t.label)}
+    </button>
+  `).join('');
+  nav.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => { activeTab = btn.dataset.tab; render(); });
+  });
+}
+
+function render(){
+  renderSidebar();
+  document.getElementById('topbar-date').textContent = formatFechaLarga(todayStr());
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  const tab = TABS.find(t => t.id === activeTab) || TABS[0];
+  tab.render(main);
+}
+
+/* ============================================================
+   PESTAÑA: RESUMEN
+============================================================= */
+function renderDashboard(main){
+  const hoy = todayStr();
+  const activos = clientesActivos();
+  const esperadas = esperadasEnFecha(hoy);
+  const entregadas = entregadasEnFecha(hoy);
+  const saltadas = saltasSafe(hoy);
+  const pendientes = Math.max(esperadas - entregadas - saltadas, 0);
+  const packsBajos = state.clientes.filter(c => c.activo && c.tipo === 'pack' && restantePack(c) <= 2);
+
+  main.innerHTML = `
+    <h1 class="page-title">Resumen de hoy</h1>
+    <p class="page-sub">${escapeHtml(formatFechaLarga(hoy))}</p>
+
+    <div class="metrics">
+      <div class="metric"><div class="m-label">Clientes activos</div><div class="m-value">${activos.length}</div></div>
+      <div class="metric"><div class="m-label">Viandas esperadas hoy</div><div class="m-value">${esperadas}</div></div>
+      <div class="metric good"><div class="m-label">Entregadas hoy</div><div class="m-value">${entregadas}</div></div>
+      <div class="metric ${pendientes>0?'alert':''}"><div class="m-label">Pendientes hoy</div><div class="m-value">${pendientes}</div></div>
+    </div>
+
+    <h2 class="section-title">Packs por renovar</h2>
+    ${packsBajos.length === 0 ? `
+      <div class="empty-state">
+        <div class="es-title">Todo en orden</div>
+        Ningún cliente con pack está por debajo de 2 viandas restantes.
+      </div>
+    ` : `
+      <div class="client-grid">
+        ${packsBajos.map(c => clientCardHtml(c)).join('')}
+      </div>
+    `}
+
+    <h2 class="section-title">Entregas de hoy</h2>
+    <p class="page-sub" style="margin-bottom:14px;">Marcá quién recibió su vianda desde la pestaña Entregas.</p>
+    <button class="btn btn-primary" id="ir-entregas">Ir a Entregas de hoy</button>
+  `;
+  document.getElementById('ir-entregas').addEventListener('click', () => {
+    activeTab = 'entregas'; entregaFecha = hoy; render();
+  });
+  bindClientCardActions(main);
+}
+function saltasSafe(fecha){ return saltadasEnFecha(fecha); }
+
+/* ============================================================
+   PESTAÑA: CLIENTES
+============================================================= */
+function fichaGridHtml(cliente){
+  if(cliente.tipo !== 'pack') return '';
+  const total = cliente.packComprado || 0;
+  const usadas = Math.min(totalEntregadas(cliente.id), total);
+  let dots = '';
+  for(let i=0;i<total;i++){
+    dots += `<div class="ficha ${i<usadas?'usada':''}"></div>`;
+  }
+  return `
+    <div class="ficha-grid">${dots || '<span class="ficha-label">Sin viandas cargadas</span>'}</div>
+    <div class="ficha-label">Restante: ${restantePack(cliente)} / ${total}</div>
+  `;
+}
+
+function clientCardHtml(c){
+  const badgeClass = c.tipo === 'empresa' ? 'badge-empresa' : c.tipo === 'pack' ? 'badge-pack' : 'badge-casual';
+  const badgeLabel = c.tipo === 'empresa' ? 'Empresa' : c.tipo === 'pack' ? 'Pack' : 'Casual';
+  const consumoLabel = c.consumo === 'almuerzo_cena' ? 'Almuerzo y cena' : 'Solo almuerzo';
+  return `
+    <div class="client-card ${c.activo ? '' : 'inactive'}" data-id="${c.id}">
+      <div class="ct-top">
+        <div>
+          <div class="ct-name">${escapeHtml(c.nombre)}</div>
+          <div class="ct-sub">${c.tipo==='empresa' && c.empresaNombre ? escapeHtml(c.empresaNombre)+' · ' : ''}${consumoLabel}</div>
+        </div>
+        <span class="badge ${badgeClass}">${badgeLabel}</span>
+      </div>
+      ${fichaGridHtml(c)}
+      ${c.telefono ? `<div class="ct-sub">Tel: ${escapeHtml(c.telefono)}</div>` : ''}
+      <div class="row" style="justify-content:space-between;margin-top:4px;">
+        <div class="ct-actions">
+          <button class="icon-btn" data-action="editar" data-id="${c.id}" title="Editar">Editar</button>
+          ${c.tipo==='pack' ? `<button class="icon-btn" data-action="renovar" data-id="${c.id}" title="Renovar pack">Renovar pack</button>` : ''}
+          <button class="icon-btn" data-action="toggle-activo" data-id="${c.id}">${c.activo?'Pausar':'Reactivar'}</button>
+        </div>
+        <button class="icon-btn btn-danger" data-action="eliminar" data-id="${c.id}">Eliminar</button>
+      </div>
+    </div>
+  `;
+}
+
+function bindClientCardActions(main){
+  main.querySelectorAll('[data-action="editar"]').forEach(b => b.addEventListener('click', () => openClienteModal(b.dataset.id)));
+  main.querySelectorAll('[data-action="renovar"]').forEach(b => b.addEventListener('click', () => openRenovarModal(b.dataset.id)));
+  main.querySelectorAll('[data-action="toggle-activo"]').forEach(b => b.addEventListener('click', async () => {
+    const c = state.clientes.find(x => x.id === b.dataset.id);
+    if(!c) return;
+    const { error } = await sb.from('clientes').update({ activo: !c.activo }).eq('id', c.id);
+    if(error){ alert(error.message); return; }
+    c.activo = !c.activo;
+    render();
+  }));
+  main.querySelectorAll('[data-action="eliminar"]').forEach(b => b.addEventListener('click', async () => {
+    const c = state.clientes.find(x => x.id === b.dataset.id);
+    if(!c) return;
+    if(!confirm(`¿Eliminar a ${c.nombre}? También se borra su historial de entregas.`)) return;
+    const { error } = await sb.from('clientes').delete().eq('id', c.id);
+    if(error){ alert(error.message); return; }
+    state.clientes = state.clientes.filter(x => x.id !== c.id);
+    state.entregas = state.entregas.filter(e => e.clienteId !== c.id);
+    render();
+  }));
+}
+
+function renderClientes(main){
+  let lista = state.clientes.filter(c => clienteFiltro === 'todos' || c.tipo === clienteFiltro);
+  if(clienteBusqueda.trim()){
+    const q = clienteBusqueda.trim().toLowerCase();
+    lista = lista.filter(c => c.nombre.toLowerCase().includes(q) || (c.empresaNombre||'').toLowerCase().includes(q));
+  }
+  main.innerHTML = `
+    <h1 class="page-title">Clientes</h1>
+    <p class="page-sub">${state.clientes.length} cliente${state.clientes.length===1?'':'s'} en total · ${clientesActivos().length} activos</p>
+
+    <div class="row" style="justify-content:space-between;margin-bottom:18px;">
+      <div class="row">
+        <span class="chip ${clienteFiltro==='todos'?'active':''}" data-f="todos">Todos</span>
+        <span class="chip ${clienteFiltro==='empresa'?'active':''}" data-f="empresa">Empresa</span>
+        <span class="chip ${clienteFiltro==='casual'?'active':''}" data-f="casual">Casual</span>
+        <span class="chip ${clienteFiltro==='pack'?'active':''}" data-f="pack">Pack</span>
+      </div>
+      <button class="btn btn-primary" id="nuevo-cliente">+ Nuevo cliente</button>
+    </div>
+    <div class="field" style="max-width:280px;margin-bottom:20px;">
+      <input type="text" id="buscador" placeholder="Buscar por nombre o empresa" value="${escapeHtml(clienteBusqueda)}">
+    </div>
+
+    ${lista.length === 0 ? `
+      <div class="empty-state">
+        <div class="es-title">Sin clientes para mostrar</div>
+        Agregá un cliente nuevo o cambiá el filtro.
+      </div>
+    ` : `<div class="client-grid">${lista.map(clientCardHtml).join('')}</div>`}
+  `;
+  main.querySelectorAll('.chip').forEach(chip => chip.addEventListener('click', () => { clienteFiltro = chip.dataset.f; render(); }));
+  document.getElementById('buscador').addEventListener('input', (e) => { clienteBusqueda = e.target.value; render(); });
+  document.getElementById('nuevo-cliente').addEventListener('click', () => openClienteModal(null));
+  bindClientCardActions(main);
+}
+
+/* ---------- modal de cliente ---------- */
+function openClienteModal(clienteId){
+  const editando = !!clienteId;
+  const c = editando ? state.clientes.find(x => x.id === clienteId) : {
+    id: uid(), nombre:'', tipo:'casual', empresaNombre:'', consumo:'almuerzo', packComprado:10, telefono:'', notas:'', activo:true
+  };
+  const modalRoot = document.getElementById('modal-root');
+  modalRoot.innerHTML = `
+    <div class="modal-backdrop" id="modal-backdrop">
+      <div class="modal-box">
+        <h2>${editando ? 'Editar cliente' : 'Nuevo cliente'}</h2>
+        <div class="field">
+          <label class="field-label">Nombre</label>
+          <input type="text" id="f-nombre" value="${escapeHtml(c.nombre)}" placeholder="Nombre y apellido">
+        </div>
+        <div class="field">
+          <label class="field-label">Tipo de cliente</label>
+          <select id="f-tipo">
+            <option value="casual" ${c.tipo==='casual'?'selected':''}>Casual</option>
+            <option value="empresa" ${c.tipo==='empresa'?'selected':''}>Empresa</option>
+            <option value="pack" ${c.tipo==='pack'?'selected':''}>Pack de viandas</option>
+          </select>
+        </div>
+        <div class="field ${c.tipo==='empresa'?'':'hidden'}" id="grupo-empresa">
+          <label class="field-label">Nombre de la empresa</label>
+          <input type="text" id="f-empresa" value="${escapeHtml(c.empresaNombre||'')}" placeholder="Ej: Estudio Contable SRL">
+        </div>
+        <div class="field">
+          <label class="field-label">Consumo diario</label>
+          <select id="f-consumo">
+            <option value="almuerzo" ${c.consumo==='almuerzo'?'selected':''}>Solo almuerzo</option>
+            <option value="almuerzo_cena" ${c.consumo==='almuerzo_cena'?'selected':''}>Almuerzo y cena</option>
+          </select>
+        </div>
+        <div class="field ${c.tipo==='pack'?'':'hidden'}" id="grupo-pack">
+          <label class="field-label">Viandas del pack</label>
+          <input type="number" id="f-pack" value="${c.packComprado ?? 10}" min="0" step="1">
+        </div>
+        <div class="field">
+          <label class="field-label">Teléfono (opcional)</label>
+          <input type="tel" id="f-telefono" value="${escapeHtml(c.telefono||'')}">
+        </div>
+        <div class="field">
+          <label class="field-label">Notas (opcional)</label>
+          <textarea id="f-notas" rows="2">${escapeHtml(c.notas||'')}</textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="cancelar-modal">Cancelar</button>
+          <button class="btn btn-primary" id="guardar-cliente">${editando?'Guardar cambios':'Crear cliente'}</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const tipoSel = document.getElementById('f-tipo');
+  tipoSel.addEventListener('change', () => {
+    document.getElementById('grupo-empresa').classList.toggle('hidden', tipoSel.value !== 'empresa');
+    document.getElementById('grupo-pack').classList.toggle('hidden', tipoSel.value !== 'pack');
+  });
+  document.getElementById('cancelar-modal').addEventListener('click', closeModal);
+  document.getElementById('modal-backdrop').addEventListener('click', (e) => { if(e.target.id==='modal-backdrop') closeModal(); });
+  document.getElementById('guardar-cliente').addEventListener('click', async () => {
+    const nombre = document.getElementById('f-nombre').value.trim();
+    if(!nombre){ alert('Poné un nombre para el cliente.'); return; }
+    const payload = {
+      nombre,
+      tipo: tipoSel.value,
+      empresa_nombre: document.getElementById('f-empresa').value.trim(),
+      consumo: document.getElementById('f-consumo').value,
+      pack_comprado: Number(document.getElementById('f-pack').value) || 0,
+      telefono: document.getElementById('f-telefono').value.trim(),
+      notas: document.getElementById('f-notas').value.trim()
+    };
+    const guardarBtn = document.getElementById('guardar-cliente');
+    guardarBtn.disabled = true;
+    if(editando){
+      const { data, error } = await sb.from('clientes').update(payload).eq('id', c.id).select().single();
+      guardarBtn.disabled = false;
+      if(error){ alert('No se pudo guardar: ' + error.message); return; }
+      const idx = state.clientes.findIndex(x => x.id === c.id);
+      state.clientes[idx] = mapClienteFromDB(data);
+    }else{
+      const { data, error } = await sb.from('clientes').insert(Object.assign({activo:true}, payload)).select().single();
+      guardarBtn.disabled = false;
+      if(error){ alert('No se pudo crear: ' + error.message); return; }
+      state.clientes.push(mapClienteFromDB(data));
+    }
+    closeModal();
+    render();
+  });
+}
+
+function openRenovarModal(clienteId){
+  const c = state.clientes.find(x => x.id === clienteId);
+  if(!c) return;
+  const modalRoot = document.getElementById('modal-root');
+  modalRoot.innerHTML = `
+    <div class="modal-backdrop" id="modal-backdrop">
+      <div class="modal-box">
+        <h2>Renovar pack — ${escapeHtml(c.nombre)}</h2>
+        <p class="page-sub">Pack actual: ${c.packComprado} viandas compradas · ${restantePack(c)} restantes.</p>
+        <div class="field">
+          <label class="field-label">Viandas a agregar</label>
+          <input type="number" id="f-renovar" value="10" min="1" step="1">
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="cancelar-modal">Cancelar</button>
+          <button class="btn btn-primary" id="confirmar-renovar">Agregar al pack</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('cancelar-modal').addEventListener('click', closeModal);
+  document.getElementById('modal-backdrop').addEventListener('click', (e) => { if(e.target.id==='modal-backdrop') closeModal(); });
+  document.getElementById('confirmar-renovar').addEventListener('click', async () => {
+    const cantidad = Number(document.getElementById('f-renovar').value) || 0;
+    const nuevoTotal = (c.packComprado || 0) + cantidad;
+    const { error } = await sb.from('clientes').update({ pack_comprado: nuevoTotal }).eq('id', c.id);
+    if(error){ alert('No se pudo renovar: ' + error.message); return; }
+    c.packComprado = nuevoTotal;
+    closeModal();
+    render();
+  });
+}
+
+function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
+
+/* ============================================================
+   COPIA DE SEGURIDAD (exportar / importar)
+============================================================= */
+function descargarBackup(){
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `backup-viandas-${todayStr()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function abrirSelectorImportar(){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json';
+  input.addEventListener('change', () => {
+    const file = input.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try{
+        const parsed = JSON.parse(reader.result);
+        if(!parsed || !Array.isArray(parsed.clientes)){
+          alert('Este archivo no tiene el formato esperado de un backup de esta app.');
+          return;
+        }
+        if(!confirm('Esto va a AGREGAR los clientes, entregas y stock de ese archivo a tu cuenta en la nube (no borra lo que ya tenés cargado). ¿Continuar?')) return;
+        await importarBackupANube(parsed);
+        closeModal();
+      }catch(e){
+        alert('No se pudo leer el archivo. Asegurate de que sea un backup exportado desde esta misma app.');
+      }
+    };
+    reader.readAsText(file);
+  });
+  input.click();
+}
+
+async function importarBackupANube(parsed){
+  const idMap = {};
+  for(const c of parsed.clientes || []){
+    const { data, error } = await sb.from('clientes').insert({
+      nombre: c.nombre, tipo: c.tipo, empresa_nombre: c.empresaNombre || '',
+      consumo: c.consumo, pack_comprado: c.packComprado || 0,
+      telefono: c.telefono || '', notas: c.notas || '', activo: c.activo !== false
+    }).select().single();
+    if(error){ console.error(error); continue; }
+    idMap[c.id] = data.id;
+  }
+  for(const e of parsed.entregas || []){
+    const nuevoClienteId = idMap[e.clienteId];
+    if(!nuevoClienteId) continue;
+    const { error } = await sb.from('entregas').upsert({
+      cliente_id: nuevoClienteId, fecha: e.fecha,
+      almuerzo: e.almuerzo ?? null, cena: e.cena ?? null
+    }, { onConflict: 'cliente_id,fecha' });
+    if(error) console.error(error);
+  }
+  for(const s of parsed.stock || []){
+    const { error } = await sb.from('stock').upsert({ fecha: s.fecha, preparadas: s.preparadas }, { onConflict: 'user_id,fecha' });
+    if(error) console.error(error);
+  }
+  await cargarDatos();
+  render();
+  alert('Importación terminada.');
+}
+
+function openBackupModal(){
+  const totalClientes = state.clientes.length;
+  const totalEntregas = state.entregas.length;
+  const modalRoot = document.getElementById('modal-root');
+  modalRoot.innerHTML = `
+    <div class="modal-backdrop" id="modal-backdrop">
+      <div class="modal-box">
+        <h2>Copia de seguridad</h2>
+        <p class="page-sub">Guardado automático no es lo mismo que un backup. Te recomendamos descargar una copia manual cada tanto (por ejemplo, una vez por semana) y guardarla en tu computadora o en la nube.</p>
+        <p class="page-sub">Ahora mismo tenés ${totalClientes} cliente${totalClientes===1?'':'s'} y ${totalEntregas} registro${totalEntregas===1?'':'s'} de entregas guardados.</p>
+        <div class="modal-footer" style="justify-content:flex-start;flex-wrap:wrap;">
+          <button class="btn btn-primary" id="btn-exportar">Descargar copia (.json)</button>
+          <button class="btn" id="btn-importar">Restaurar desde archivo</button>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="cancelar-modal">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('cancelar-modal').addEventListener('click', closeModal);
+  document.getElementById('modal-backdrop').addEventListener('click', (e) => { if(e.target.id==='modal-backdrop') closeModal(); });
+  document.getElementById('btn-exportar').addEventListener('click', descargarBackup);
+  document.getElementById('btn-importar').addEventListener('click', abrirSelectorImportar);
+}
+
+/* ============================================================
+   PESTAÑA: ENTREGAS
+============================================================= */
+function renderEntregas(main){
+  let lista = clientesActivos();
+  if(entregaFiltro !== 'todos') lista = lista.filter(c => c.tipo === entregaFiltro);
+
+  const esperadas = esperadasEnFecha(entregaFecha);
+  const entregadas = entregadasEnFecha(entregaFecha);
+  const saltadas = saltadasEnFecha(entregaFecha);
+
+  main.innerHTML = `
+    <h1 class="page-title">Entregas</h1>
+    <p class="page-sub">Marcá cada vianda como entregada o saltada por cliente.</p>
+
+    <div class="row" style="justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;">
+      <div class="field" style="max-width:200px;margin-bottom:0;">
+        <input type="date" id="f-fecha" value="${entregaFecha}">
+      </div>
+      <div class="row">
+        <span class="chip ${entregaFiltro==='todos'?'active':''}" data-f="todos">Todos</span>
+        <span class="chip ${entregaFiltro==='empresa'?'active':''}" data-f="empresa">Empresa</span>
+        <span class="chip ${entregaFiltro==='casual'?'active':''}" data-f="casual">Casual</span>
+        <span class="chip ${entregaFiltro==='pack'?'active':''}" data-f="pack">Pack</span>
+      </div>
+    </div>
+
+    <div class="metrics" style="margin-bottom:22px;">
+      <div class="metric"><div class="m-label">Esperadas</div><div class="m-value">${esperadas}</div></div>
+      <div class="metric good"><div class="m-label">Entregadas</div><div class="m-value">${entregadas}</div></div>
+      <div class="metric"><div class="m-label">Saltadas</div><div class="m-value">${saltadas}</div></div>
+    </div>
+
+    ${lista.length === 0 ? `
+      <div class="empty-state">
+        <div class="es-title">No hay clientes activos en este filtro</div>
+        Sumá clientes desde la pestaña Clientes.
+      </div>
+    ` : lista.map(c => entregaRowHtml(c)).join('')}
+  `;
+
+  document.getElementById('f-fecha').addEventListener('change', (e) => { entregaFecha = e.target.value || todayStr(); render(); });
+  main.querySelectorAll('.chip').forEach(chip => chip.addEventListener('click', () => { entregaFiltro = chip.dataset.f; render(); }));
+  main.querySelectorAll('.meal-toggle').forEach(btn => {
+    btn.addEventListener('click', () => setEntregaEstado(btn.dataset.cliente, entregaFecha, btn.dataset.meal));
+  });
+}
+
+function mealButtonHtml(cliente, meal, label){
+  const e = getEntrega(cliente.id, entregaFecha);
+  const estado = e ? e[meal] : undefined;
+  const cls = estado === 'entregado' ? 'entregado' : estado === 'saltado' ? 'saltado' : '';
+  const texto = estado === 'entregado' ? `✓ ${label}` : estado === 'saltado' ? `✕ ${label}` : `— ${label}`;
+  return `<button class="meal-toggle ${cls}" data-cliente="${cliente.id}" data-meal="${meal}">${texto}</button>`;
+}
+
+function entregaRowHtml(c){
+  const badgeClass = c.tipo === 'empresa' ? 'badge-empresa' : c.tipo === 'pack' ? 'badge-pack' : 'badge-casual';
+  const badgeLabel = c.tipo === 'empresa' ? 'Empresa' : c.tipo === 'pack' ? 'Pack' : 'Casual';
+  return `
+    <div class="entrega-row">
+      <div class="er-name">
+        <div class="er-nombre">${escapeHtml(c.nombre)} <span class="badge ${badgeClass}" style="margin-left:6px;">${badgeLabel}</span></div>
+        <div class="er-meta">${c.tipo==='pack' ? 'Restante: ' + restantePack(c) + ' / ' + (c.packComprado||0) : (c.tipo==='empresa' && c.empresaNombre ? escapeHtml(c.empresaNombre) : '')}</div>
+      </div>
+      ${mealButtonHtml(c, 'almuerzo', 'Almuerzo')}
+      ${c.consumo === 'almuerzo_cena' ? mealButtonHtml(c, 'cena', 'Cena') : ''}
+    </div>
+  `;
+}
+
+/* ============================================================
+   PESTAÑA: STOCK
+============================================================= */
+function renderStock(main){
+  const entregasHoy = entregadasEnFecha(stockFecha);
+  const entrada = state.stock.find(s => s.fecha === stockFecha);
+  const preparadas = entrada ? entrada.preparadas : 0;
+  const balance = preparadas - entregasHoy;
+
+  const historial = [...state.stock].sort((a,b) => b.fecha.localeCompare(a.fecha)).slice(0,10);
+
+  main.innerHTML = `
+    <h1 class="page-title">Stock</h1>
+    <p class="page-sub">Registrá cuántas viandas preparás cada día y compará contra lo entregado.</p>
+
+    <div class="stock-form">
+      <div class="field">
+        <label class="field-label">Fecha</label>
+        <input type="date" id="s-fecha" value="${stockFecha}">
+      </div>
+      <div class="field">
+        <label class="field-label">Viandas preparadas</label>
+        <input type="number" id="s-preparadas" value="${preparadas}" min="0" step="1">
+      </div>
+      <button class="btn btn-primary" id="s-guardar">Guardar</button>
+    </div>
+
+    <div class="metrics" style="margin-bottom:26px;">
+      <div class="metric"><div class="m-label">Preparadas (${formatFechaCorta(stockFecha)})</div><div class="m-value">${preparadas}</div></div>
+      <div class="metric good"><div class="m-label">Entregadas ese día</div><div class="m-value">${entregasHoy}</div></div>
+      <div class="metric ${balance<0?'alert':''}"><div class="m-label">${balance<0?'Faltaron':'Sobrantes'}</div><div class="m-value">${Math.abs(balance)}</div></div>
+    </div>
+
+    <h2 class="section-title">Historial reciente</h2>
+    ${historial.length === 0 ? `
+      <div class="empty-state">
+        <div class="es-title">Todavía no cargaste stock</div>
+        Guardá la cantidad preparada de hoy para empezar el historial.
+      </div>
+    ` : `
+      <table class="data-table">
+        <thead><tr><th>Fecha</th><th>Preparadas</th><th>Entregadas</th><th>Balance</th></tr></thead>
+        <tbody>
+          ${historial.map(h => {
+            const ent = entregadasEnFecha(h.fecha);
+            const bal = h.preparadas - ent;
+            return `<tr>
+              <td>${formatFechaCorta(h.fecha)}</td>
+              <td class="num">${h.preparadas}</td>
+              <td class="num">${ent}</td>
+              <td class="num" style="color:${bal<0?'var(--brick)':'var(--olive)'}">${bal}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    `}
+  `;
+
+  document.getElementById('s-fecha').addEventListener('change', (e) => { stockFecha = e.target.value || todayStr(); render(); });
+  document.getElementById('s-guardar').addEventListener('click', async () => {
+    const valor = Number(document.getElementById('s-preparadas').value) || 0;
+    const { data, error } = await sb.from('stock')
+      .upsert({ fecha: stockFecha, preparadas: valor }, { onConflict: 'user_id,fecha' })
+      .select().single();
+    if(error){ alert('No se pudo guardar el stock: ' + error.message); return; }
+    let s = state.stock.find(x => x.fecha === stockFecha);
+    if(!s){ state.stock.push({ fecha: data.fecha, preparadas: data.preparadas }); }
+    else{ s.preparadas = data.preparadas; }
+    render();
+  });
+}
+
+/* ============================================================
+   INICIO
+============================================================= */
+async function bootApp(){
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app-screen').classList.remove('hidden');
+  document.getElementById('user-email').textContent = currentSession.user.email;
+  await cargarDatos();
+  document.getElementById('negocio-nombre').value = state.negocioNombre;
+  render();
+}
+
+function mostrarLogin(){
+  document.getElementById('app-screen').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+}
+
+async function init(){
+  document.getElementById('negocio-nombre').addEventListener('change', async (e) => {
+    const nombre = e.target.value.trim() || 'Mi Vianda';
+    state.negocioNombre = nombre;
+    const { error } = await sb.from('negocio_config').upsert({ nombre }, { onConflict: 'user_id' });
+    if(error) console.error(error);
+  });
+  document.getElementById('btn-backup').addEventListener('click', openBackupModal);
+  document.getElementById('btn-logout').addEventListener('click', async () => { await sb.auth.signOut(); });
+
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    const btn = document.getElementById('login-submit');
+    const errBox = document.getElementById('login-error');
+    errBox.classList.add('hidden');
+    btn.disabled = true; btn.textContent = 'Ingresando…';
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    btn.disabled = false; btn.textContent = 'Ingresar';
+    if(error){
+      errBox.textContent = 'Email o contraseña incorrectos.';
+      errBox.classList.remove('hidden');
+    }
+  });
+
+  sb.auth.onAuthStateChange((_event, session) => {
+    currentSession = session;
+    if(session){ bootApp(); } else { mostrarLogin(); }
+  });
+
+  const { data: { session } } = await sb.auth.getSession();
+  currentSession = session;
+  if(session){ await bootApp(); } else { mostrarLogin(); }
+}
+init();
+</script>
+</body>
+</html>
