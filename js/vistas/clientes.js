@@ -98,7 +98,7 @@ function dialogoPago(c, alTerminar){
     titulo: `Cargar pago · ${c.nombre}`,
     texto: `Tiene <b>${esc(textoSaldo(c))}</b>. Cada crédito es una vianda paga: se suman a los que tiene y cada vianda entregada descuenta uno.`,
     html: `<div class="frow">
-        <div class="field"><label for="f-pago-viandas">Créditos (viandas pagas)</label><input type="number" id="f-pago-viandas" step="1" value="${CREDITOS_POR_DEFECTO}" autofocus></div>
+        <div class="field"><label for="f-pago-viandas">Créditos (viandas pagas)${REQ}</label><input type="number" id="f-pago-viandas" step="1" value="${CREDITOS_POR_DEFECTO}" autofocus></div>
         <div class="field"><label for="f-pago-monto">Monto (opcional)</label><input type="number" id="f-pago-monto" min="0" step="1" placeholder="$"></div>
       </div>
       <div class="frow">
@@ -110,7 +110,7 @@ function dialogoPago(c, alTerminar){
     onMount: (el) => {
       el._validar = () => {
         const v = Math.trunc(Number(el.querySelector('#f-pago-viandas').value));
-        if(!v){ toast('Poné cuántos créditos (viandas) pagó.', 'err'); return false; }
+        if(!v) return marcarFalta(el.querySelector('#f-pago-viandas'), 'Poné cuántos créditos (viandas) pagó.');
         return true;
       };
     }
@@ -167,7 +167,7 @@ function bindUbicacion(el, pre, datos){
   const btn = el.querySelector(`#${pre}-geo`), res = el.querySelector(`#${pre}-georesultados`);
   const buscar = async () => {
     const q = el.querySelector(`#${pre}-direccion`).value.trim();
-    if(!q){ toast('Escribí una dirección para buscar.', 'err'); return; }
+    if(!q){ marcarFalta(el.querySelector(`#${pre}-direccion`), 'Escribí una dirección para buscar.'); return; }
     btn.classList.add('busy');
     try{
       const r = await buscarDireccion(q, cocina());
@@ -216,7 +216,7 @@ function abrirCliente(id){
       ${c ? `<div class="psec" style="margin-top:8px"><h3>Créditos</h3>${saldoHtml}</div>` : ''}
 
       <div class="psec" style="${c ? '' : 'margin-top:0'}"><h3>Datos</h3>
-        <div class="field"><label for="f-nombre">Nombre</label><input type="text" id="f-nombre" value="${esc(d.nombre)}" placeholder="Nombre y apellido" ${c ? '' : 'autofocus'}></div>
+        <div class="field"><label for="f-nombre">Nombre${REQ}</label><input type="text" id="f-nombre" value="${esc(d.nombre)}" placeholder="Nombre y apellido" ${c ? '' : 'autofocus'}></div>
         <div class="frow">
           <div class="field"><label for="f-tipo">Tipo de cliente</label><select id="f-tipo">
             ${TIPOS.map(t => `<option value="${t}" ${d.tipo === t ? 'selected' : ''}>${TIPO_LABEL[t]}</option>`).join('')}</select></div>
@@ -259,7 +259,7 @@ function abrirCliente(id){
       if(bp) bp.addEventListener('click', () => dialogoPago(c, () => { refrescar(); abrirCliente(c.id); }));
       el.querySelector('#guardar-cliente').addEventListener('click', async (ev) => {
         const nombre = el.querySelector('#f-nombre').value.trim();
-        if(!nombre){ toast('Poné un nombre para el cliente.', 'err'); el.querySelector('#f-nombre').focus(); return; }
+        if(!nombre){ marcarFalta(el.querySelector('#f-nombre'), 'Poné un nombre para el cliente.'); return; }
         const dias = [...el.querySelectorAll('[name="f-dias"]:checked')].map(x => Number(x.value));
         const datos = {
           nombre, tipo: tipoSel.value, empresaNombre: el.querySelector('#f-empresa').value.trim(),
@@ -281,8 +281,7 @@ function abrirCliente(id){
             if(inicial) await registrarPago(guardado, { viandas: inicial, monto: el.querySelector('#f-monto-inicial').value, nota: 'Alta del cliente' });
           }
           toast(c ? 'Cambios guardados.' : `<b>${esc(guardado.nombre)}</b> quedó cargado.`);
-          abrirCliente(guardado.id);
-          refrescar();
+          cerrarPanel(); refrescar();
         }catch(e){ toastError('No se pudo guardar', e); b.disabled = false; }
       });
       if(!c) return;

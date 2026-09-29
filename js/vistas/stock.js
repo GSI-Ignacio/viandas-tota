@@ -1,9 +1,9 @@
 /* ============================================================
    PESTAÑA: STOCK — productos terminados, menús armados con esos
-   productos, y producción diaria. Al entregar una comanda la base
-   descuenta los productos de sus menús (y los que se usan en toda
-   vianda, como envases). Con las comandas de los próximos días se
-   calcula qué hace falta hoy y hasta cuándo alcanza cada producto.
+   productos, y producción diaria. Un pedido descuenta los productos de
+   sus menús al cargarse, y una vianda de pack los de su tipo de vianda al
+   entregarse (más lo que se usa en toda vianda, como envases). Con las
+   viandas de los próximos días se calcula qué falta y hasta cuándo alcanza.
 ============================================================= */
 let stockVista = 'productos';     // productos | menus | produccion
 const UNIDADES = ['unidades', 'porciones', 'kg', 'cajones', 'bandejas', 'paquetes', 'docenas', 'litros'];
@@ -24,15 +24,19 @@ function renderStock(bar, main){
       <button data-v="menus" aria-pressed="${stockVista === 'menus'}">Menús</button>
       <button data-v="produccion" aria-pressed="${stockVista === 'produccion'}">Producción diaria</button>
     </div><div class="sp"></div>
+    ${esDueno() && stockVista !== 'produccion' && menusSinProductos().length ? `<button class="btn" id="menus-a-stock">${icon('caja', 14)} Pasar menús al stock</button>` : ''}
     ${esDueno() && stockVista === 'productos' ? `<button class="btn" id="nuevo-producto">${icon('plus', 14)} Nuevo producto</button>
       <button class="btn primary" id="cargar-stock">${icon('caja', 14)} Cargar stock</button>` : ''}
+    ${stockVista === 'menus' && puedeElegirCartaDia(todayStr()) ? `<button class="btn" id="elegir-menu-dia">${icon('menu', 14)} Menú del día</button>` : ''}
     ${esDueno() && stockVista === 'menus' ? `<button class="btn" id="pegar-carta">${icon('copiar', 14)} Pegar carta</button>
       <button class="btn primary" id="nuevo-menu">${icon('plus', 14)} Nuevo menú</button>` : ''}
     ${!esDueno() ? '<span class="muted">Solo lectura</span>' : ''}`;
   bar.querySelectorAll('[data-v]').forEach(b => b.addEventListener('click', () => { stockVista = b.dataset.v; render(); }));
   const np = bar.querySelector('#nuevo-producto'); if(np) np.addEventListener('click', () => abrirProducto(null));
+  const mas = bar.querySelector('#menus-a-stock'); if(mas) mas.addEventListener('click', () => abrirMenusAStock());
   const cs = bar.querySelector('#cargar-stock'); if(cs) cs.addEventListener('click', () => abrirCargaStock());
   const nm = bar.querySelector('#nuevo-menu'); if(nm) nm.addEventListener('click', () => abrirMenu(null));
+  const md = bar.querySelector('#elegir-menu-dia'); if(md) md.addEventListener('click', () => abrirCartaDia(todayStr()));
   const pc = bar.querySelector('#pegar-carta'); if(pc) pc.addEventListener('click', () => abrirPegarCarta());
   if(stockVista === 'produccion') return renderProduccion(main);
   if(stockVista === 'menus') return renderMenus(main);
@@ -51,10 +55,10 @@ function renderStock(bar, main){
     <section class="tsec">
       <h2>Productos <span class="n">${prods.length}</span></h2>
       ${prods.length ? `<div class="clist"><div class="tablewrap"><table class="ptable">
-        <thead><tr><th>Producto</th><th class="r">Stock</th><th class="r">Hoy hace falta</th><th class="r">Mínimo</th><th>Cobertura</th>${esDueno() ? '<th class="r">Movimiento</th>' : ''}</tr></thead>
+        <thead><tr><th>Producto</th><th class="r">Stock</th><th class="r" title="Viandas de packs que faltan entregar hoy. Los pedidos ya se descontaron al cargarlos.">Falta hoy</th><th class="r">Mínimo</th><th>Cobertura</th>${esDueno() ? '<th class="r">Movimiento</th>' : ''}</tr></thead>
         <tbody>${prods.map(p => { const cob = coberturaTxt(p); const bajo = p.minimo > 0 && p.stock <= p.minimo;
-          return `<tr class="click ${p.activo ? '' : 'off'}" data-prod="${p.id}" tabindex="0">
-            <td><div class="pwho">${icon('caja', 15)}<div><div class="n">${esc(p.nombre)} ${p.activo ? '' : '<span class="tag plain">Inactivo</span>'}</div><div class="s">${esc(p.unidad)}</div></div></div></td>
+          return `<tr class="click ${p.activo ? '' : 'off'} ${p.stock < 0 ? 'neg' : ''}" data-prod="${p.id}" tabindex="0">
+            <td><div class="pwho">${icon('caja', 15)}<div><div class="n">${esc(p.nombre)} ${p.activo ? '' : '<span class="tag plain">Inactivo</span>'}${p.stock < 0 ? ' <span class="tag bad">en negativo</span>' : ''}</div><div class="s">${esc(p.unidad)}</div></div></div></td>
             <td class="r"><span class="saldo ${p.stock < 0 || bajo ? 'bad' : ''}">${fmtNum(p.stock)}</span></td>
             <td class="r">${hoyNecesita[p.id] ? `<span class="saldo ${hoyNecesita[p.id] > p.stock ? 'bad' : ''}">${fmtNum(hoyNecesita[p.id])}</span>` : '<span class="muted">—</span>'}</td>
             <td class="r z">${p.minimo ? fmtNum(p.minimo) : '—'}</td>
@@ -62,7 +66,7 @@ function renderStock(bar, main){
             ${esDueno() ? `<td class="r"><button class="btn" data-mov="cargar" data-p="${p.id}">${icon('plus', 12)} Cargar</button></td>` : ''}
           </tr>`; }).join('')}</tbody></table></div></div>`
       : `<div class="clist"><div class="stub" style="margin:28px auto"><div class="ico">${icon('caja', 20)}</div><h2>Sin productos</h2>
-          <p>Cargá los productos terminados que preparás: milanesas, filet de pollo, porciones de puré, tartas… Después armá los menús con esos productos y se descuentan solos con cada entrega.</p>
+          <p>Cargá los productos terminados que preparás: milanesas, filet de pollo, porciones de puré, tartas… Después armá los menús con esos productos y se descuentan solos con cada pedido y cada vianda entregada.</p>
           ${esDueno() ? `<button class="btn lg primary" id="primer-producto">${icon('plus', 14)} Nuevo producto</button>` : ''}</div></div>`}
     </section></div>`;
   main.querySelectorAll('[data-prod]').forEach(r => {
@@ -80,7 +84,7 @@ function dialogoMovimiento(p, tipo, alTerminar){
     titulo: `${titulos[tipo]} · ${p.nombre}`,
     texto: `Stock actual: <b>${fmtNum(p.stock)} ${esc(p.unidad)}</b>.`,
     html: `<div class="frow">
-        <div class="field"><label for="f-mov-cant">${tipo === 'ajuste' ? 'Stock contado' : 'Cantidad'} (${esc(p.unidad)})</label>
+        <div class="field"><label for="f-mov-cant">${tipo === 'ajuste' ? 'Stock contado' : 'Cantidad'} (${esc(p.unidad)})${REQ}</label>
           <input type="number" id="f-mov-cant" step="any" ${tipo === 'ajuste' ? `value="${p.stock}"` : 'min="0"'} autofocus></div>
         <div class="field"><label for="f-mov-fecha">Fecha</label><input type="date" id="f-mov-fecha" value="${todayStr()}"></div></div>
       <div class="field"><label for="f-mov-nota">Nota (opcional)</label><input type="text" id="f-mov-nota" placeholder="${tipo === 'entrada' ? 'Compra, proveedor…' : tipo === 'salida' ? 'Uso en cocina, merma…' : 'Recuento'}"></div>`,
@@ -88,7 +92,7 @@ function dialogoMovimiento(p, tipo, alTerminar){
     onMount: (el) => {
       el._validar = () => {
         const v = Number(el.querySelector('#f-mov-cant').value);
-        if(el.querySelector('#f-mov-cant').value === '' || isNaN(v) || (tipo !== 'ajuste' && v <= 0)){ toast('Poné una cantidad válida.', 'err'); return false; }
+        if(el.querySelector('#f-mov-cant').value === '' || isNaN(v) || (tipo !== 'ajuste' && v <= 0)) return marcarFalta(el.querySelector('#f-mov-cant'), 'Poné una cantidad válida.');
         return true;
       };
     }
@@ -127,7 +131,7 @@ function abrirProducto(id){
           <button class="btn lg" data-m="ajuste">${icon('editar', 14)} Ajustar al contado</button></div>` : ''}` : ''}
       ${lectura ? `<dl class="props" style="margin-top:16px"><dt>Unidad</dt><dd>${esc(d.unidad)}</dd><dt>Avisar con</dt><dd>${fmtNum(d.minimo)}</dd><dt>En cada vianda</dt><dd>${d.porVianda ? fmtNum(d.porVianda) : 'No'}</dd></dl>` : `
       <div class="psec" style="margin-top:${p ? 22 : 0}px"><h3>Producto</h3>
-        <div class="field"><label for="f-prod-nombre">Nombre</label><input type="text" id="f-prod-nombre" value="${esc(d.nombre)}" placeholder="Ej: Milanesas, Puré, Envases" autocomplete="off" ${p ? '' : 'autofocus'}>
+        <div class="field"><label for="f-prod-nombre">Nombre${REQ}</label><input type="text" id="f-prod-nombre" value="${esc(d.nombre)}" placeholder="Ej: Milanesas, Puré, Envases" autocomplete="off" ${p ? '' : 'autofocus'}>
           <div id="prod-existe"></div></div>
         <div class="field"><label for="f-prod-unidad">Se cuenta en</label>
           <select id="f-prod-unidad">${UNIDADES.map(u => `<option value="${u}" ${u === d.unidad ? 'selected' : ''}>${u}</option>`).join('')}
@@ -172,7 +176,7 @@ function abrirProducto(id){
       const guardar = el.querySelector('#guardar-producto');
       if(guardar) guardar.addEventListener('click', async () => {
         const nombre = el.querySelector('#f-prod-nombre').value.trim();
-        if(!nombre){ toast('Poné un nombre para el producto.', 'err'); return; }
+        if(!nombre){ marcarFalta(el.querySelector('#f-prod-nombre'), 'Poné un nombre para el producto.'); return; }
         if(existente()){ toast(`Ya existe <b>${esc(existente().nombre)}</b>: para sumarle stock usá Cargar stock.`, 'err'); return; }
         const unidad = unidadSel.value === '__otra' ? (otra.value.trim() || 'unidades') : unidadSel.value;
         const datos = { nombre, unidad,
@@ -186,7 +190,7 @@ function abrirProducto(id){
           const ini = p ? 0 : Number(el.querySelector('#f-prod-inicial').value) || 0;
           if(ini) await registrarMovimiento(guardado, { tipo: 'entrada', cantidad: ini, nota: 'Stock inicial' });
           toast(p ? 'Producto actualizado.' : 'Producto creado.');
-          abrirProducto(guardado.id); refrescar();
+          cerrarPanel(); refrescar();
         }catch(e){ toastError('No se pudo guardar el producto', e); guardar.disabled = false; }
       });
       const borrar = el.querySelector('#borrar-producto');
@@ -264,7 +268,7 @@ function renderMenus(main){
       <span class="why">${usoHoy.get(m.id) ? `${plural(usoHoy.get(m.id), 'vianda')} hoy` : ''}</span>
       <b class="num" style="min-width:84px;text-align:right">${m.precio != null ? fmtPlata(m.precio) : '<span class="muted" style="font-weight:400">sin precio</span>'}</b></div>`;
   main.innerHTML = `<div class="page">
-    <p class="hello-sub" style="margin-top:0">La carta: cada menú con su precio y los productos del stock que lleva. Al entregar una comanda se descuentan solos, y la guarnición que se elija también.
+    <p class="hello-sub" style="margin-top:0">La carta: cada menú con su precio y los productos del stock que lleva. Al cargar un pedido se descuentan solos, y la guarnición que se elija también.
       ${esDueno() ? ' Para cargar la carta de WhatsApp de una vez, usá <b>Pegar carta</b>.' : ''}</p>
     ${state.menus.length ? cats.map(cat => { const ms = state.menus.filter(m => (m.categoria || 'Sin categoría') === cat);
       return `<section class="tsec" style="margin-top:18px"><h2>${esc(cat)} <span class="n">${ms.length}</span></h2><div class="clist">${ms.map(fila).join('')}</div></section>`; }).join('')
@@ -299,7 +303,7 @@ function abrirMenu(id){
     titulo: `${icon('menu', 14)} ${m ? 'Menú' : 'Nuevo menú'}`,
     html: lectura ? `<h2 class="ptitle">${esc(d.nombre)}</h2><p class="psub">${esc(d.descripcion)}</p>
         <dl class="props"><dt>Precio</dt><dd>${d.precio != null ? fmtPlata(d.precio) : '—'}</dd><dt>Lleva</dt><dd>${esc(componentesTxt(d))}${d.llevaGuarnicion ? ' + guarnición' : ''}</dd></dl>` : `
-      <div class="field"><label for="f-menu-nombre">Nombre</label><input type="text" id="f-menu-nombre" value="${esc(d.nombre)}" placeholder="Ej: Milanesa con puré" ${m ? '' : 'autofocus'}></div>
+      <div class="field"><label for="f-menu-nombre">Nombre${REQ}</label><input type="text" id="f-menu-nombre" value="${esc(d.nombre)}" placeholder="Ej: Milanesa con puré" ${m ? '' : 'autofocus'}></div>
       <div class="frow">
         <div class="field"><label for="f-menu-precio">Precio</label><input type="number" id="f-menu-precio" min="0" step="1" value="${d.precio ?? ''}" placeholder="$"></div>
         <div class="field"><label for="f-menu-cat">Categoría</label><input type="text" id="f-menu-cat" value="${esc(d.categoria || '')}" list="menu-cats" placeholder="Carnes, Pollo, Varios…">
@@ -323,7 +327,7 @@ function abrirMenu(id){
       el.querySelector('#cancelar-menu').addEventListener('click', () => cerrarPanel());
       el.querySelector('#guardar-menu').addEventListener('click', async (ev) => {
         const nombre = el.querySelector('#f-menu-nombre').value.trim();
-        if(!nombre){ toast('Poné un nombre para el menú.', 'err'); return; }
+        if(!nombre){ marcarFalta(el.querySelector('#f-menu-nombre'), 'Poné un nombre para el menú.'); return; }
         const items = [...cont.querySelectorAll('.cline')].map(r => ({ productoId: r.querySelector('[data-campo="producto"]').value, cantidad: Number(r.querySelector('[data-campo="cantidad"]').value) || 0 }))
           .filter(i => i.productoId && i.cantidad > 0);
         const repetido = items.find((x, i) => items.findIndex(y => y.productoId === x.productoId) !== i);
@@ -332,7 +336,8 @@ function abrirMenu(id){
         try{
           const g = await guardarMenu(m ? m.id : null, { nombre, descripcion: el.querySelector('#f-menu-desc').value.trim(), activo: el.querySelector('#f-menu-activo').checked, items,
             precio: el.querySelector('#f-menu-precio').value, categoria: el.querySelector('#f-menu-cat').value, llevaGuarnicion: el.querySelector('#f-menu-guarnicion').checked });
-          toast(m ? 'Menú actualizado.' : `Menú <b>${esc(nombre)}</b> creado.`); abrirMenu(g.id); refrescar();
+          if(m) await recalcularPedidosPendientes().catch(() => {});
+          toast(m ? 'Menú actualizado.' : `Menú <b>${esc(nombre)}</b> creado.`); cerrarPanel(); refrescar();
         }catch(e){ toastError('No se pudo guardar el menú', e); b.disabled = false; }
       });
       const borrar = el.querySelector('#borrar-menu');
@@ -390,8 +395,13 @@ function abrirCargaStock(pid, hecho){
       el.querySelector('#guardar-stock').addEventListener('click', async (ev) => {
         const lineas = [...cont.querySelectorAll('.cline')].map(r => ({ p: state.productos.find(x => x.id === r.querySelector('[data-campo="producto"]').value), q: Number(r.querySelector('[data-campo="cantidad"]').value) || 0 }));
         const validas = lineas.filter(l => l.p && l.q > 0);
-        if(!validas.length){ toast('Elegí un producto y poné la cantidad.', 'err'); return; }
-        if(lineas.some(l => (l.p && !(l.q > 0)) || (!l.p && l.q > 0))){ toast('Hay una fila sin producto o sin cantidad.', 'err'); return; }
+        const filas = [...cont.querySelectorAll('.cline')];
+        const mala = filas.find((r, i) => (lineas[i].p && !(lineas[i].q > 0)) || (!lineas[i].p && lineas[i].q > 0));
+        if(!validas.length || mala){
+          const r = mala || filas[0], i = filas.indexOf(r);
+          const falta = lineas[i] && lineas[i].p ? r.querySelector('[data-campo="cantidad"]') : r.querySelector('[data-campo="producto"]');
+          marcarFalta(falta, falta && falta.dataset.campo === 'cantidad' ? 'Poné la cantidad.' : 'Elegí el producto.'); return;
+        }
         const b = ev.currentTarget; b.disabled = true;
         const fecha = el.querySelector('#cs-fecha').value || todayStr(), nota = el.querySelector('#cs-nota').value.trim();
         try{
@@ -399,8 +409,7 @@ function abrirCargaStock(pid, hecho){
           const signo = cargaTipo === 'salida' ? '−' : '+';
           const resumen = validas.map(l => { const act = state.productos.find(x => x.id === l.p.id); return `${signo}${fmtNum(l.q)} ${esc(l.p.nombre)} (quedan ${fmtNum(act ? act.stock : 0)})`; }).join(' · ');
           toast(`Stock cargado: ${resumen}.`);
-          renderMenu(); refrescar();
-          abrirCargaStock(null, `Cargado: ${resumen}. Podés seguir cargando.`);
+          cerrarPanel(); renderMenu(); refrescar();
         }catch(e){ toastError('No se pudo cargar el stock', e); b.disabled = false; }
       });
       const primera = cont.querySelector(pid ? '[data-campo="cantidad"]' : 'select'); if(primera) setTimeout(() => primera.focus(), 40);
@@ -412,13 +421,13 @@ async function dialogoProductoRapido(){
   const r = await dialogo({
     titulo: 'Producto nuevo',
     texto: 'Se agrega a la lista una sola vez; después lo elegís de la lista cada vez que cargues stock.',
-    html: `<div class="field"><label for="f-rap-nombre">Nombre</label><input type="text" id="f-rap-nombre" placeholder="Ej: Filet de pollo" autofocus></div>
+    html: `<div class="field"><label for="f-rap-nombre">Nombre${REQ}</label><input type="text" id="f-rap-nombre" placeholder="Ej: Filet de pollo" autofocus></div>
       <div class="field"><label for="f-rap-unidad">Se cuenta en</label><select id="f-rap-unidad">${UNIDADES.map(u => `<option>${u}</option>`).join('')}</select></div>`,
     botones: [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Agregar a la lista', clase: 'primary', domId: 'confirmar-producto-rapido' }],
     onMount: (el) => {
       el._validar = () => {
         const n = el.querySelector('#f-rap-nombre').value.trim();
-        if(!n){ toast('Poné el nombre del producto.', 'err'); return false; }
+        if(!n) return marcarFalta(el.querySelector('#f-rap-nombre'), 'Poné el nombre del producto.');
         const ya = state.productos.find(x => normalizarNombre(x.nombre) === normalizarNombre(n));
         if(ya){ toast(`Ya existe <b>${esc(ya.nombre)}</b> en la lista.`, 'err'); return false; }
         return true;
@@ -549,9 +558,75 @@ function abrirPegarCarta(texto, resultado){
           const partes = [r.menusNuevos && plural(r.menusNuevos, 'menú nuevo', 'menús nuevos'), r.menusActualizados && plural(r.menusActualizados, 'menú actualizado', 'menús actualizados'),
                           r.guarnicionesNuevas && plural(r.guarnicionesNuevas, 'guarnición', 'guarniciones'), r.productosNuevos && plural(r.productosNuevos, 'producto nuevo', 'productos nuevos')].filter(Boolean);
           toast(`Carta guardada: ${partes.join(', ')}.`);
-          stockVista = 'menus'; refrescar();
-          abrirPegarCarta(null, `Carta guardada: ${partes.join(', ')}. Ya aparecen en Menús y para elegir en las comandas.`);
+          stockVista = 'menus'; cerrarPanel(); render();
         }catch(e){ toastError('No se pudo guardar la carta', e); b.disabled = false; b.textContent = 'Guardar'; }
+      });
+    }
+  });
+}
+
+/* ---------- pasar los menús al stock ----------
+   Crea un producto de stock por cada menú que todavía no descuenta nada y lo enlaza:
+   cada plato que se pida descuenta 1 de ese producto. */
+const menusSinProductos = () => state.menus.filter(m => m.activo && !m.items.length);
+
+function abrirMenusAStock(){
+  const ms = menusSinProductos();
+  const conProd = state.menus.filter(m => m.activo && m.items.length).length;
+  const cats = [...new Set(ms.map(m => m.categoria || 'Sin categoría'))];
+  const existente = (m) => state.productos.find(p => normalizarNombre(p.nombre) === normalizarNombre(m.nombre));
+  const fila = (m) => { const ya = existente(m); return `<tr data-menu="${m.id}">
+      <td><label class="check"><input type="checkbox" data-c="usar" checked> ${esc(m.nombre)}</label></td>
+      <td>${ya ? '<span class="muted">Usa el producto que ya existe</span>'
+        : `<select class="inp sm" data-c="unidad" aria-label="Se cuenta en" style="width:130px">${UNIDADES.map(u => `<option ${u === 'porciones' ? 'selected' : ''}>${u}</option>`).join('')}</select>`}</td>
+      <td class="r">${ya ? `<span class="muted">hay ${fmtNum(ya.stock)} ${esc(ya.unidad)}</span>`
+        : '<input type="number" class="inp sm" data-c="inicial" min="0" step="1" placeholder="0" aria-label="Cuánto tenés ahora" style="width:96px;margin-left:auto">'}</td></tr>`; };
+  abrirPanel({
+    titulo: `${icon('caja', 14)} Pasar menús al stock`, ancho: 'medio',
+    html: ms.length ? `<p class="psub" style="margin-top:0">Se crea un producto de stock por cada menú y quedan enlazados: cada plato que pidan descuenta 1 de ese producto.
+        Destildá los que no quieras contar así.</p>
+      <div class="clist"><div class="tablewrap"><table class="ptable compacta">
+        <thead><tr><th><label class="check"><input type="checkbox" id="ms-todos" checked> Menú</label></th><th>Se cuenta en</th><th class="r">Cuánto tenés ahora</th></tr></thead>
+        <tbody>${cats.map(cat => `<tr class="grp"><td colspan="3">${esc(cat)}</td></tr>` + ms.filter(m => (m.categoria || 'Sin categoría') === cat).map(fila).join('')).join('')}</tbody>
+      </table></div></div>
+      ${conProd ? `<p class="muted" style="font-size:13px;margin-top:10px">${plural(conProd, 'menú ya descuenta', 'menús ya descuentan')} productos del stock: esos no se tocan.</p>` : ''}`
+      : `<div class="clist"><div class="calm">${icon('check')} Todos los menús ya descuentan productos del stock.</div></div>`,
+    pie: ms.length ? '<button class="btn lg" id="ms-cancelar">Cancelar</button><button class="btn lg primary" id="ms-crear">Pasar menús</button>'
+      : '<button class="btn lg" id="ms-cancelar">Cerrar</button>',
+    onMount: (el) => {
+      el.querySelector('#ms-cancelar').addEventListener('click', () => cerrarPanel());
+      const todos = el.querySelector('#ms-todos'), checks = () => [...el.querySelectorAll('[data-c="usar"]')];
+      const crear = el.querySelector('#ms-crear');
+      const contar = () => {
+        const n = checks().filter(x => x.checked).length;
+        if(crear){ crear.disabled = !n; crear.textContent = n ? `Pasar ${plural(n, 'menú', 'menús')}` : 'Pasar menús'; }
+        if(todos) todos.checked = n === checks().length;
+      };
+      if(todos) todos.addEventListener('change', () => { checks().forEach(x => { x.checked = todos.checked; }); contar(); });
+      checks().forEach(x => x.addEventListener('change', contar));
+      contar();
+      if(crear) crear.addEventListener('click', async () => {
+        const filas = [...el.querySelectorAll('tr[data-menu]')].filter(r => r.querySelector('[data-c="usar"]').checked);
+        crear.disabled = true;
+        let hechos = 0;
+        try{
+          for(const r of filas){
+            const m = menuPorId(r.dataset.menu);
+            if(!m) continue;
+            crear.textContent = `Pasando ${hechos + 1} de ${filas.length}…`;
+            let p = existente(m);
+            if(!p){
+              p = await guardarProducto(null, { nombre: m.nombre, unidad: r.querySelector('[data-c="unidad"]').value, minimo: 0, porVianda: 0, activo: true, esGuarnicion: false });
+              const ini = Number(r.querySelector('[data-c="inicial"]').value) || 0;
+              if(ini > 0) await registrarMovimiento(p, { tipo: 'entrada', cantidad: ini, nota: 'Stock inicial' });
+            }
+            await guardarMenu(m.id, { ...m, items: [{ productoId: p.id, cantidad: 1 }] });
+            hechos++;
+          }
+          await recalcularPedidosPendientes();   // los pedidos que ya estaban pasan a descontar su producto
+          toast(`Listo: ${plural(hechos, 'menú quedó', 'menús quedaron')} en el stock. Cargá cuánto tenés con <b>Cargar stock</b>.`);
+          stockVista = 'productos'; cerrarPanel(); renderMenu(); render();
+        }catch(e){ toastError(hechos ? `Se pasaron ${hechos} y después falló` : 'No se pudo crear', e); crear.disabled = false; contar(); refrescar(); }
       });
     }
   });

@@ -5,10 +5,31 @@
    Lo pendiente arriba con sus botones; lo ya registrado queda plegado.
    A la derecha lo que requiere atención: créditos, stock y próximos días.
 ============================================================= */
+/* Lo ya registrado va en una línea: estado, qué se entregó y un botón para volverlo a pendiente. */
+function filaHechaHtml({ ok, nombre, detalle, etiqueta, abrir, toggle }){
+  return `<div class="trow hecha ${ok ? 'done' : 'skip'}" ${abrir.fila}>
+    <span class="est ${ok ? 'ok' : 'bad'}" aria-hidden="true">${icon(ok ? 'check' : 'x', 13)}</span>
+    <div class="t" ${abrir.attr} role="button" tabindex="0" title="${abrir.title}">
+      <div class="n1"><b>${esc(nombre)}</b><span> · ${detalle}</span></div></div>
+    <span class="tag ${ok ? 'ok' : 'bad'}">${etiqueta}</span>
+    ${toggle}
+  </div>`;
+}
+const botonDeshacer = () => `<button class="mb" data-deshacer title="Volver a pendiente" aria-label="Deshacer: volver a pendiente">${icon('deshacer', 14)}<span class="lbl">Deshacer</span></button>`;
+
 function filaTurnoHtml(c, fecha, turno){
   const e = getEntrega(c.id, fecha);
   const estado = e ? e[turno] : null;
   const editable = puedeRegistrarEn(fecha);
+  const nombreVianda = menuPorId(c.menuAlmuerzoId) ? menuPorId(c.menuAlmuerzoId).nombre : 'vianda';
+  if(estado === 'entregado' || estado === 'saltado'){
+    const ok = estado === 'entregado';
+    return filaHechaHtml({ ok, nombre: c.nombre,
+      detalle: `${viandasTurno(c, fecha, turno)}× ${esc(nombreVianda)} · ${esc(TIPO_LABEL[c.tipo] || '')}`,
+      etiqueta: ok ? 'Entregado' : 'No se entregó',
+      abrir: { fila: `data-row="${c.id}" data-turno-row="${turno}"`, attr: `data-abrir="${c.id}"`, title: 'Ver la ficha de la entrega' },
+      toggle: editable ? `<div class="meal-toggle deshacer ${estado}" data-cliente="${c.id}" data-meal="${turno}">${botonDeshacer().replace('data-deshacer', `data-v="${estado}"`)}</div>` : '' });
+  }
   const bloqueado = estado !== 'entregado' && !puedeEntregar(c, fecha, turno);
   const est = estadoSaldo(c);
   const dir = [c.direccion || 'Sin dirección cargada', c.referencia].filter(Boolean).join(' · ');
@@ -17,7 +38,7 @@ function filaTurnoHtml(c, fecha, turno){
       <div class="n">${esc(c.nombre)}
         ${est !== 'ok' ? `<span class="tag ${est}">${esc(textoSaldo(c))}</span>` : ''}
         ${c.notas ? `<span class="tag plain" title="${esc(c.notas)}">${esc(c.notas.length > 28 ? c.notas.slice(0, 26) + '…' : c.notas)}</span>` : ''}</div>
-      <div class="que"><b>${viandasTurno(c, fecha, turno)}×</b> ${esc(menuPorId(c.menuAlmuerzoId) ? menuPorId(c.menuAlmuerzoId).nombre : 'vianda')} <span class="muted">· ${esc(TIPO_LABEL[c.tipo] || '')}</span></div>
+      <div class="que"><b>${viandasTurno(c, fecha, turno)}×</b> ${esc(nombreVianda)} <span class="muted">· ${esc(TIPO_LABEL[c.tipo] || '')}</span></div>
       <div class="s">${esc(dir)}</div>
       ${bloqueado ? `<div class="s warnline">Sin créditos: no entregar hasta que pague.${esDueno() ? ' Cargá el pago desde su ficha.' : ' Avisale al dueño.'}</div>` : ''}
     </div>
@@ -39,8 +60,9 @@ function renderHoy(bar, main){
   const sinSaldoHoy = new Set(sinSaldo.filter(c => turnosDe(c, hoy).length).map(c => c.id));
   const porVencer = clientesPorVencer();
   const necesita = necesidadProductos(hoy, { soloPendiente: true });
-  const faltanHoy = state.productos.filter(p => necesita[p.id] > p.stock);
-  const bajos = productosBajos().filter(p => !faltanHoy.includes(p));
+  const negativos = productosNegativos();
+  const faltanHoy = state.productos.filter(p => p.activo && p.stock >= 0 && necesita[p.id] > p.stock);
+  const bajos = productosBajos().filter(p => p.stock >= 0 && !faltanHoy.includes(p));
   const crudo = state.perfil.nombre || (state.sesion ? state.sesion.user.email.split('@')[0].split(/[._-]/)[0] : '');
   const nombre = crudo ? crudo.charAt(0).toUpperCase() + crudo.slice(1) : '';
   const clientesPend = delDia.filter(c => clientePendiente(c, hoy));
@@ -69,13 +91,15 @@ function renderHoy(bar, main){
     if(!lista.length) return '';
     const pend = lista.filter(c => turnoPendiente(c, hoy, t));
     const hechas = lista.filter(c => !turnoPendiente(c, hoy, t));
+    const nEnt = hechas.filter(c => (getEntrega(c.id, hoy) || {})[t] === 'entregado').length, nNo = hechas.length - nEnt;
     const viandasPend = pend.reduce((s, c) => s + viandasTurno(c, hoy, t), 0);
     return `<section class="tsec" style="margin-top:0;margin-bottom:22px" data-turno="${t}">
       <h2>${t === 'almuerzo' ? `${icon('entregas', 15)} Viandas de packs y fijos` : `${icon('luna', 15)} Cena`}
         <span class="n">${pend.length ? `${plural(viandasPend, 'vianda')} por entregar a ${plural(pend.length, 'cliente')}` : 'todo registrado'}</span></h2>
       <div class="clist">
         ${pend.length ? pend.map(c => filaTurnoHtml(c, hoy, t)).join('') : `<div class="calm">${icon('check')} No queda nada por entregar.</div>`}
-        ${hechas.length ? `<details class="hechas" data-plegado="${t}" ${!pend.length || hoyAbiertas.has(t) ? 'open' : ''}><summary>${icon('chevD', 12)} Ya registradas (${hechas.length}) · se pueden corregir</summary>
+        ${hechas.length ? `<details class="hechas" data-plegado="${t}" ${!pend.length || hoyAbiertas.has(t) ? 'open' : ''}><summary>${icon('chevD', 12)} Ya registradas
+            <span class="cuenta">${[nEnt && `<span><i class="ok"></i>${plural(nEnt, 'entregada')}</span>`, nNo && `<span><i class="bad"></i>${nNo} no se ${nNo === 1 ? 'entregó' : 'entregaron'}</span>`].filter(Boolean).join('')}</span></summary>
           ${hechas.map(c => filaTurnoHtml(c, hoy, t)).join('')}</details>` : ''}
       </div></section>`;
   }).join('');
@@ -86,7 +110,8 @@ function renderHoy(bar, main){
       <h2>${icon('comanda', 15)} Pedidos <span class="n">${pedPend.length ? `${plural(pedPend.length, 'pedido')} por entregar · ${plural(rp.viandasPendientes, 'plato')}` : 'todo registrado'}</span></h2>
       <div class="clist">
         ${pedPend.length ? pedPend.map(p => filaPedidoHtml(p, hoy)).join('') : `<div class="calm">${icon('check')} No quedan pedidos por entregar.</div>`}
-        ${pedHechos.length ? `<details class="hechas" data-plegado="pedidos" ${!pedPend.length || hoyAbiertas.has('pedidos') ? 'open' : ''}><summary>${icon('chevD', 12)} Ya registrados (${pedHechos.length}) · se pueden corregir</summary>
+        ${pedHechos.length ? `<details class="hechas" data-plegado="pedidos" ${!pedPend.length || hoyAbiertas.has('pedidos') ? 'open' : ''}><summary>${icon('chevD', 12)} Ya registrados
+            <span class="cuenta">${cuentaPedidosHechos(pedHechos)}</span></summary>
           ${pedHechos.map(p => filaPedidoHtml(p, hoy)).join('')}</details>` : ''}
       </div></section>` : '';
 
@@ -108,6 +133,7 @@ function renderHoy(bar, main){
         <button class="btn lg primary" id="nueva-comanda-vacio">${icon('plus', 14)} Nuevo pedido</button></div></div>` : ''}</div>
 
       <aside class="hoy-aside">
+        ${seccionCartaDiaHtml(hoy)}
         ${sinSaldo.length || porVencer.length ? `<section class="tsec" id="sec-saldo">
           <h2>${icon('alerta', 14)} Créditos</h2>
           <div class="clist ${sinSaldo.length ? 'alert' : ''}">
@@ -115,9 +141,11 @@ function renderHoy(bar, main){
             ${porVencer.map(c => { const d = diasQueCubre(c); return irow(c, `<div class="s" style="color:var(--warn-ink);font-weight:500">Quedan ${plural(saldoDe(c.id), 'crédito')}${d ? ` · alcanza ${plural(d, 'día')}` : ''}</div>`, accionesSaldo(c)); }).join('')}
           </div></section>` : ''}
 
-        ${faltanHoy.length || bajos.length ? `<section class="tsec">
+        ${negativos.length || faltanHoy.length || bajos.length ? `<section class="tsec">
           <h2>${icon('stock', 14)} Stock para hoy <span class="sp"></span><button class="btn quiet" data-ir="stock">Ver stock</button></h2>
-          <div class="clist ${faltanHoy.length ? 'alert' : ''}">
+          <div class="clist ${negativos.length || faltanHoy.length ? 'alert' : ''}">
+            ${negativos.map(p => `<div class="irow click neg" data-ir="stock"><div class="t"><div class="n">${esc(p.nombre)}</div>
+              <div class="s" style="color:var(--bad-ink)">Stock en negativo: ${fmtNum(p.stock)} ${esc(p.unidad)}</div></div><span class="why bad">${fmtNum(p.stock)}</span></div>`).join('')}
             ${faltanHoy.map(p => `<div class="irow click" data-ir="stock"><div class="t"><div class="n">${esc(p.nombre)}</div>
               <div class="s">Hacen falta ${fmtNum(necesita[p.id])} · hay ${fmtNum(p.stock)} ${esc(p.unidad)}</div></div><span class="why bad">faltan ${fmtNum(necesita[p.id] - p.stock)}</span></div>`).join('')}
             ${bajos.map(p => `<div class="irow click" data-ir="stock"><div class="t"><div class="n">${esc(p.nombre)}</div>
@@ -136,6 +164,7 @@ function renderHoy(bar, main){
   </div>`;
 
   main.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => irA(b.dataset.ir)));
+  bindCartaDia(main);
   main.querySelectorAll('[data-stop]').forEach(b => b.addEventListener('click', e => e.stopPropagation()));
   main.querySelectorAll('[data-pago]').forEach(b => b.addEventListener('click', () => dialogoPago(clientePorId(b.dataset.pago), refrescar)));
   main.querySelectorAll('.irow[data-cli]').forEach(row => row.addEventListener('click', () => { irA('clientes'); abrirCliente(row.dataset.cli); }));

@@ -21,6 +21,7 @@ const TABS = [
     badge: () => { const n = clientesSinSaldo().length; return n ? { n, alert: true } : null; } },
   { id: 'stock',    label: 'Stock',    icon: 'stock',    grupo: 'Gestión',   roles: ['dueno', 'ayudante'], render: renderStock,
     badge: () => { const n = productosBajos().length; return n ? { n, alert: true } : null; } },
+  { id: 'estadisticas', label: 'Estadísticas', icon: 'grafico', grupo: 'Gestión', roles: ['dueno'], render: renderEstadisticas },
   { id: 'registro', label: 'Registro', icon: 'registro', grupo: 'Control',   roles: ['dueno', 'ayudante'], render: renderRegistro },
   { id: 'equipo',   label: 'Equipo',   icon: 'equipo',   grupo: 'Control',   roles: ['dueno'], render: renderEquipo },
   { id: 'ajustes',  label: 'Ajustes',  icon: 'ajustes',  grupo: 'Control',   roles: ['dueno'], render: renderAjustes },
@@ -28,7 +29,7 @@ const TABS = [
 
 /* Pestañas que se muestran. Las demás siguen en el código, listas para volver
    a sumarlas acá. 'mi-ruta' es la única pantalla del cadete. */
-let PESTANAS_VISIBLES = ['hoy', 'comandas', 'clientes', 'stock', 'mi-ruta'];
+let PESTANAS_VISIBLES = ['hoy', 'comandas', 'clientes', 'stock', 'estadisticas', 'mi-ruta'];
 
 let activeTab = null;
 const tabsVisibles = () => TABS.filter(t => (!t.roles || t.roles.includes(state.perfil.rol)) && (!PESTANAS_VISIBLES || PESTANAS_VISIBLES.includes(t.id)));
@@ -251,7 +252,7 @@ async function bootApp(session){
     const migrar = e instanceof MigracionPendiente;
     document.getElementById('main').innerHTML = `<div class="stub"><div class="ico">${icon(migrar ? 'ajustes' : 'alerta', 20)}</div>
       <h2>${migrar ? 'Falta actualizar la base de datos' : 'No se pudieron cargar los datos'}</h2>
-      <p>${migrar ? `Esta versión necesita que corras <code>migracion-${esc(e.message)}.sql</code>${e.message !== 'v4' ? ' (y después las siguientes)' : ''} una vez en Supabase → SQL Editor. Conserva todos tus datos.` : esc(traducirError(e.message || String(e)))}</p>
+      <p>${migrar ? `Esta versión necesita que corras <code>migracion-${esc(e.message)}.sql</code>${e.message !== 'v5' ? ' (y después las siguientes)' : ''} una vez en Supabase → SQL Editor. Conserva todos tus datos.` : esc(traducirError(e.message || String(e)))}</p>
       <button class="btn lg" id="btn-reintentar">Reintentar</button> <button class="btn lg quiet" id="btn-salir2">Salir</button></div>`;
     document.getElementById('btn-reintentar').addEventListener('click', () => { arrancadoPara = null; bootApp(session); });
     document.getElementById('btn-salir2').addEventListener('click', () => sb.auth.signOut());

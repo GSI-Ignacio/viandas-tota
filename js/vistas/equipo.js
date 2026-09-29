@@ -49,7 +49,7 @@ function abrirCadete(id){
   abrirPanel({
     ancho: 'medio',
     titulo: `${icon('moto', 14)} ${k ? 'Cadete' : 'Nuevo cadete'}`,
-    html: `<div class="field"><label for="f-cad-nombre">Nombre</label><input type="text" id="f-cad-nombre" value="${esc(d.nombre)}" autofocus></div>
+    html: `<div class="field"><label for="f-cad-nombre">Nombre${REQ}</label><input type="text" id="f-cad-nombre" value="${esc(d.nombre)}" autofocus></div>
       <div class="field"><label for="f-cad-tel">Teléfono (para mandarle la ruta por WhatsApp)</label><input type="tel" id="f-cad-tel" value="${esc(d.telefono)}"></div>
       <div class="field"><span class="flabel" id="lbl-color">Color en el mapa</span><div class="days" role="radiogroup" aria-labelledby="lbl-color">
         ${COLORES_CADETE.map(c => `<label><input type="radio" name="f-cad-color" value="${c}" ${c === d.color ? 'checked' : ''} aria-label="Color ${c}"><span style="background:${c};border-color:${c};${c === d.color ? 'box-shadow:0 0 0 2px var(--panel),0 0 0 4px ' + c : ''}"></span></label>`).join('')}</div></div>
@@ -64,11 +64,11 @@ function abrirCadete(id){
       el.querySelector('#cancelar-cad').addEventListener('click', () => cerrarPanel());
       el.querySelector('#guardar-cadete').addEventListener('click', async () => {
         const nombre = el.querySelector('#f-cad-nombre').value.trim();
-        if(!nombre){ toast('Poné el nombre del cadete.', 'err'); return; }
+        if(!nombre){ marcarFalta(el.querySelector('#f-cad-nombre'), 'Poné el nombre del cadete.'); return; }
         try{
           const g = await guardarCadete(k ? k.id : null, { nombre, telefono: el.querySelector('#f-cad-tel').value.trim(),
             color: (el.querySelector('[name="f-cad-color"]:checked') || {}).value || COLORES_CADETE[0], activo: el.querySelector('#f-cad-activo').checked });
-          toast(k ? 'Cadete actualizado.' : 'Cadete creado.'); abrirCadete(g.id); refrescar();
+          toast(k ? 'Cadete actualizado.' : 'Cadete creado.'); cerrarPanel(); refrescar();
         }catch(e){ toastError('No se pudo guardar', e); }
       });
       const b = el.querySelector('#borrar-cadete');
@@ -84,7 +84,7 @@ function dialogoMiembro(){
   dialogo({
     titulo: 'Sumar usuario',
     texto: 'El usuario tiene que existir en Supabase → Authentication → Users. Acá le das acceso a tu negocio con un rol.',
-    html: `<div class="field"><label for="f-m-email">Email del usuario</label><input type="email" id="f-m-email" autofocus></div>
+    html: `<div class="field"><label for="f-m-email">Email del usuario${REQ}</label><input type="email" id="f-m-email" autofocus></div>
       <div class="field"><label for="f-m-nombre">Nombre (opcional)</label><input type="text" id="f-m-nombre"></div>
       <div class="frow"><div class="field"><label for="f-m-rol">Rol</label><select id="f-m-rol"><option value="ayudante">Ayudante</option><option value="cadete">Cadete</option></select></div>
         <div class="field hidden" id="grupo-m-cadete"><label for="f-m-cadete">¿Qué cadete es?</label><select id="f-m-cadete">
@@ -93,7 +93,7 @@ function dialogoMiembro(){
     onMount: (el) => {
       const rol = el.querySelector('#f-m-rol');
       rol.addEventListener('change', () => el.querySelector('#grupo-m-cadete').classList.toggle('hidden', rol.value !== 'cadete'));
-      el._validar = () => { if(!el.querySelector('#f-m-email').value.trim()){ toast('Poné el email del usuario.', 'err'); return false; } return true; };
+      el._validar = () => { if(!el.querySelector('#f-m-email').value.trim()) return marcarFalta(el.querySelector('#f-m-email'), 'Poné el email del usuario.'); return true; };
     }
   }).then(async (r) => {
     if(!r) return;

@@ -21,6 +21,7 @@ const state = {
   produccion: [],      // viandas preparadas por día (tabla stock)
   productos: [],       // con su stock actual
   menus: [],           // { id, nombre, descripcion, activo, items: [{ productoId, cantidad }] }
+  cartaDia: [],        // { id, fecha, menuId, guarnicionId }: los menús del día y las guarniciones de cada fecha
   comandas: {},        // `${clienteId}|${fecha}|${turno}` → filas de la comanda (un menú por fila)
   comandasGeneradas: new Set(), // fechas cuyas comandas ya se trajeron en esta sesión
 };
@@ -116,6 +117,11 @@ async function cargarPerfil(){
     if(/estado|column/i.test(chk.error.message)) throw new MigracionPendiente('v4');
     throw chk.error;
   }
+  const chk5 = await sb.from('carta_dia').select('fecha').limit(1);
+  if(chk5.error){
+    if(/relation|does not exist|PGRST205|schema cache/i.test(chk5.error.message + ' ' + (chk5.error.code || ''))) throw new MigracionPendiente('v5');
+    throw chk5.error;
+  }
 }
 
 /* Las comandas son pedidos particulares: ya no se arman solas. Queda para no romper llamadas viejas. */
@@ -123,7 +129,7 @@ async function generarComandas(){ return 0; }
 async function recargarComandas(fecha, clienteId){
   const filas = await traerTodo(() => { let q = sb.from('comandas').select('*').eq('fecha', fecha); if(clienteId) q = q.eq('cliente_id', clienteId); return q; });
   if(clienteId){ for(const t of ['almuerzo', 'cena']) delete state.comandas[claveT(clienteId, fecha, t)]; guardarComandasEnEstado(filas); }
-  else guardarComandasEnEstado(filas, [fecha]);
+  else{ guardarComandasEnEstado(filas, [fecha]); await recargarCartaDia(fecha); }
 }
 /* Trae las comandas de un día que todavía no estaba cargado. */
 async function prepararComandas(fecha){
@@ -138,7 +144,7 @@ async function cargarDatos(){
   const hoy = todayStr();
   const desde = sumarDias(hoy, -7), hasta = sumarDias(hoy, 7);
   const verStock = !esCadete();
-  const [config, clientes, cadetes, saldos, entregas, rutas, produccion, productos, miembros, menus, menuItems, comandas] = await Promise.all([
+  const [config, clientes, cadetes, saldos, entregas, rutas, produccion, productos, miembros, menus, menuItems, comandas, carta] = await Promise.all([
     sb.from('negocio_config').select('*').maybeSingle(),
     traerTodo(() => sb.from('clientes').select('*').order('nombre')),
     sb.from('cadetes').select('*').order('nombre'),
@@ -150,7 +156,8 @@ async function cargarDatos(){
     esDueno() ? sb.from('miembros').select('*').order('created_at') : { data: [] },
     sb.from('menus').select('*').order('nombre'),
     sb.from('menu_productos').select('*'),
-    traerTodo(() => sb.from('comandas').select('*').gte('fecha', desde).lte('fecha', hasta))
+    traerTodo(() => sb.from('comandas').select('*').gte('fecha', desde).lte('fecha', hasta)),
+    traerTodo(() => sb.from('carta_dia').select('*').gte('fecha', desde).lte('fecha', hasta))
   ]);
   for(const r of [config, cadetes, saldos, produccion, productos, miembros, menus, menuItems]) if(r.error) throw r.error;
   const cfg = config.data || {};
@@ -172,9 +179,15 @@ async function cargarDatos(){
   state.produccion = (produccion.data || []).map(r => ({ fecha: r.fecha, preparadas: r.preparadas }));
   state.productos = (productos.data || []).map(mapProducto);
   state.miembros = miembros.data || [];
-  state.menus = armarMenus(menus.data || [], menuItems.data || []);
+  state.menus = armarMenus(menus.data || [], menuItems.data || []).sort(ordenMenus);
   state.comandas = {};
   guardarComandasEnEstado(comandas);
+  state.cartaDia = carta.map(mapCartaDia);
+}
+const mapCartaDia = (r) => ({ id: r.id, fecha: r.fecha, menuId: r.menu_id || null, guarnicionId: r.guarnicion_id || null });
+async function recargarCartaDia(fecha){
+  const filas = await traerTodo(() => sb.from('carta_dia').select('*').eq('fecha', fecha));
+  state.cartaDia = state.cartaDia.filter(x => x.fecha !== fecha).concat(filas.map(mapCartaDia));
 }
 
 /* Trae entregas y rutas de un día fuera de la ventana cargada. */
@@ -220,6 +233,8 @@ function tieneRegistro(c, fecha){ const e = getEntrega(c.id, fecha); return !!(e
 /* ---------- comandas ---------- */
 const lineasComanda = (clienteId, fecha, turno) => state.comandas[claveT(clienteId, fecha, turno)] || [];
 const menuPorId = (id) => state.menus.find(m => m.id === id);
+// los menús van de menor a mayor precio (los que no tienen precio, al final) y a igual precio por nombre
+const ordenMenus = (a, b) => (a.precio ?? Infinity) - (b.precio ?? Infinity) || a.nombre.localeCompare(b.nombre, 'es');
 /* ENTREGAS (packs y clientes fijos): cada vianda es una unidad y descuenta un crédito.
    No dependen de las comandas, que son pedidos particulares aparte. */
 function recibeTurno(c, fecha, turno){
@@ -373,32 +388,80 @@ function demandaDia(fecha){
 }
 /* Productos que hacen falta un día según las comandas (o el menú habitual). soloPendiente deja
    afuera los turnos ya registrados, que ya se descontaron del stock. Devuelve { productoId: cantidad }. */
+/* Lo que todavía no salió del stock ese día: las viandas de los packs que faltan entregar
+   (envases y los productos de su tipo de vianda). Los pedidos ya se descontaron al cargarlos. */
 function necesidadProductos(fecha, { soloPendiente = false } = {}){
   const out = {};
   const sumar = (pid, q) => { out[pid] = (out[pid] || 0) + q; };
-  const porVianda = (v) => { for(const p of state.productos) if(p.activo && p.porVianda > 0) sumar(p.id, p.porVianda * v); };
-  // packs: cada vianda usa solo lo de "toda vianda" (envases…)
   for(const c of clientesActivos()){
     const e = getEntrega(c.id, fecha);
+    const m = menuPorId(c.menuAlmuerzoId);
     for(const t of turnosDe(c, fecha)){
       if(soloPendiente && e && e[t]) continue;
-      porVianda(viandasTurno(c, fecha, t));
+      const v = viandasTurno(c, fecha, t);
+      for(const p of state.productos) if(p.activo && p.porVianda > 0) sumar(p.id, p.porVianda * v);
+      if(m) for(const it of m.items) sumar(it.productoId, it.cantidad * v);
     }
   }
-  // pedidos: los productos de cada plato y su guarnición
+  return out;
+}
+/* Lo que usan los pedidos de un día (ya descontado del stock al cargarlos). */
+function usoPedidos(fecha){
+  const out = {};
+  const sumar = (pid, q) => { out[pid] = (out[pid] || 0) + q; };
   for(const ped of pedidosDelDia(fecha)){
-    if(ped.estado === 'cancelada' || (soloPendiente && ped.estado === 'entregada')) continue;
+    if(ped.estado === 'cancelada') continue;
     for(const l of ped.lineas){
       const m = menuPorId(l.menuId);
       if(m) for(const it of m.items) sumar(it.productoId, it.cantidad * l.cantidad);
       if(l.guarnicionId) sumar(l.guarnicionId, l.cantidad);
     }
-    porVianda(ped.viandas);
+    for(const p of state.productos) if(p.activo && p.porVianda > 0) sumar(p.id, p.porVianda * ped.viandas);
   }
   return out;
 }
+// productos activos con stock en negativo
+const productosNegativos = () => state.productos.filter(p => p.activo && p.stock < 0);
+const textoNegativos = (ps) => ps.map(p => `<b>${esc(p.nombre)}</b> (${fmtNum(p.stock)})`).join(', ');
 const productoEnUso = (p) => p.porVianda > 0 || p.esGuarnicion || state.menus.some(m => m.activo && m.items.some(i => i.productoId === p.id));
 const guarniciones = () => state.productos.filter(p => p.esGuarnicion && p.activo);
+
+/* ---------- menú del día ---------- */
+// Los platos elegidos como menú del día y las guarniciones que hay esa fecha (vacío si no se eligió nada).
+const menusDelDia = (fecha) => state.cartaDia.filter(x => x.fecha === fecha && x.menuId).map(x => menuPorId(x.menuId)).filter(Boolean)
+  .sort(ordenMenus);
+const guarnicionesDelDia = (fecha) => state.cartaDia.filter(x => x.fecha === fecha && x.guarnicionId).map(x => state.productos.find(p => p.id === x.guarnicionId)).filter(Boolean)
+  .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+const hayCartaDia = (fecha) => state.cartaDia.some(x => x.fecha === fecha);
+// "Menú de hoy", "Menú de mañana", "Menú del jueves 2"
+function etiquetaMenuDia(fecha){
+  if(fecha === todayStr()) return 'Menú de hoy';
+  if(fecha === sumarDias(todayStr(), 1)) return 'Menú de mañana';
+  return 'Menú del ' + parseFecha(fecha).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' }).replace(',', '');
+}
+/* Guarda qué menús y guarniciones hay en una fecha: agrega lo nuevo y quita lo que se destildó. */
+async function guardarCartaDia(fecha, { menus, guarniciones: gs }){
+  const actuales = state.cartaDia.filter(x => x.fecha === fecha);
+  const quiere = new Set([...menus.map(id => 'm' + id), ...gs.map(id => 'g' + id)]);
+  const claveFila = (x) => x.menuId ? 'm' + x.menuId : 'g' + x.guarnicionId;
+  const tiene = new Set(actuales.map(claveFila));
+  const borrar = actuales.filter(x => !quiere.has(claveFila(x))).map(x => x.id);
+  const nuevas = [...menus.filter(id => !tiene.has('m' + id)).map(id => ({ fecha, menu_id: id })),
+                  ...gs.filter(id => !tiene.has('g' + id)).map(id => ({ fecha, guarnicion_id: id }))];
+  if(borrar.length){ const { error } = await sb.from('carta_dia').delete().in('id', borrar); if(error) throw error; }
+  if(nuevas.length){ const { error } = await sb.from('carta_dia').insert(nuevas); if(error) throw error; }
+  await recargarCartaDia(fecha);
+}
+/* Texto para mandar por WhatsApp con el menú de un día. */
+function textoCartaDia(fecha){
+  const ms = menusDelDia(fecha), gs = guarnicionesDelDia(fecha);
+  const lista = (xs) => xs.length > 1 ? xs.slice(0, -1).join(', ') + ' y ' + xs[xs.length - 1] : xs.join('');
+  const esHoy = fecha === todayStr();
+  const dia = parseFecha(fecha).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' }).replace(',', '');
+  return [...(esHoy ? ['¡Buen día! 🤗'] : []), esHoy ? 'Menú del día 🥘' : `Menú del ${dia} 🥘`, '',
+    ...ms.map(m => `• ${m.nombre}${m.precio != null ? ' ' + fmtPlata(m.precio) : ''}`),
+    ...(gs.length ? ['', `Guarniciones: ${lista(gs.map(g => g.nombre.toLowerCase()))}`] : [])].join('\n');
+}
 function produccionDe(fecha){ const p = state.produccion.find(x => x.fecha === fecha); return p ? p.preparadas : null; }
 /* Para productos que se usan en menús (o en toda vianda): hasta qué día alcanza el stock según las comandas. */
 function coberturaProducto(p){
@@ -414,7 +477,7 @@ function coberturaProducto(p){
   }
   return { dias, faltaEl, necesario7 };
 }
-const productosBajos = () => state.productos.filter(p => p.activo && p.minimo > 0 && p.stock <= p.minimo);
+const productosBajos = () => state.productos.filter(p => p.activo && (p.stock < 0 || (p.minimo > 0 && p.stock <= p.minimo)));
 
 /* ---------- escrituras ---------- */
 async function marcarEntrega(c, fecha, turno, valor){
@@ -435,7 +498,7 @@ async function marcarEntrega(c, fecha, turno, valor){
   state.entregas[clave(c.id, fecha)] = nueva;
   const s = state.saldos[c.id] || (state.saldos[c.id] = { pagado: 0, consumido: 0, saldo: 0 });
   s.consumido += delta; s.saldo -= delta;
-  if(delta !== 0 && !esCadete()) recargarProductos().catch(() => {});
+  if(delta !== 0 && !esCadete()) await recargarProductos().catch(() => {});
   return nueva;
 }
 
@@ -463,15 +526,24 @@ async function guardarComanda(c, fecha, turno, lineas){
     .map(n => ({ cliente_id: c.id, fecha, turno, menu_id: n.menuId, guarnicion_id: n.guarnicionId, cantidad: n.cantidad, nota: n.nota, origen: 'manual' }));
   if(aInsertar.length){ const { error } = await sb.from('comandas').insert(aInsertar); if(error) throw error; }
   await recargarComandas(fecha, c.id);
+  if(!esCadete()) await recargarProductos().catch(() => {});   // el pedido ya descontó su stock
+}
+
+/* Vuelve a calcular lo que descuentan los pedidos pendientes de hoy en adelante
+   (por ejemplo, después de cambiar los productos de un menú). */
+async function recalcularPedidosPendientes(){
+  const { error } = await sb.from('comandas').update({ estado: 'pendiente' }).eq('estado', 'pendiente').gte('fecha', todayStr());
+  if(error) throw error;
+  await recargarProductos();
 }
 
 /* Cambia el estado del pedido de un cliente un día: pendiente | entregada | cancelada.
-   Al pasar a entregada la base descuenta del stock los productos de cada plato y la guarnición. */
+   El stock ya se descontó al cargarlo; al cancelarlo vuelve. */
 async function marcarPedido(c, fecha, estado){
   const { error } = await sb.from('comandas').update({ estado }).eq('cliente_id', c.id).eq('fecha', fecha);
   if(error) throw error;
   await recargarComandas(fecha, c.id);
-  if(!esCadete()) recargarProductos().catch(() => {});
+  if(!esCadete()) await recargarProductos().catch(() => {});
 }
 
 async function guardarMenu(id, datos){
@@ -492,7 +564,7 @@ async function guardarMenu(id, datos){
               precio: data.precio == null ? null : Number(data.precio), categoria: data.categoria || '', llevaGuarnicion: !!data.lleva_guarnicion };
   const i = state.menus.findIndex(x => x.id === m.id);
   if(i >= 0) state.menus[i] = m; else state.menus.push(m);
-  state.menus.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  state.menus.sort(ordenMenus);
   return m;
 }
 /* Carga una carta leída de un texto (ver leerCarta en stock.js). Crea las guarniciones que falten
@@ -683,7 +755,7 @@ async function buscarRegistro({ desde, hasta, texto, actor, turno, pagina = 0 })
 
 /* ---------- copia de seguridad ---------- */
 async function exportarTodo(){
-  const tablas = ['clientes', 'pagos', 'entregas', 'stock', 'productos', 'movimientos', 'cadetes', 'rutas', 'menus', 'menu_productos', 'comandas'];
+  const tablas = ['clientes', 'pagos', 'entregas', 'stock', 'productos', 'movimientos', 'cadetes', 'rutas', 'menus', 'menu_productos', 'comandas', 'carta_dia'];
   const datos = {};
   for(const t of tablas) datos[t] = await traerTodo(() => sb.from(t).select('*'));
   return { version: 2, app: 'viandas', exportado: new Date().toISOString(), negocio: state.config, ...datos };

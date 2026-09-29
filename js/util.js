@@ -95,7 +95,9 @@ const ICON_PATHS = {
   lista: '<path d="M5.5 4h8M5.5 8h8M5.5 12h8"/><path d="M2.5 4h.1M2.5 8h.1M2.5 12h.1"/>',
   copiar: '<rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M3 11V3.5A1 1 0 0 1 4 2.5h7"/>',
   comanda: '<path d="M4 1.8h8v12.4l-1.6-1-1.2 1-1.2-1-1.2 1-1.2-1-1.6 1z"/><path d="M6 5h4M6 7.5h4M6 10h2.5"/>',
-  menu: '<path d="M3 9.5a5 5 0 0 1 10 0z"/><path d="M1.8 11.5h12.4M8 3v1.5"/>'
+  menu: '<path d="M3 9.5a5 5 0 0 1 10 0z"/><path d="M1.8 11.5h12.4M8 3v1.5"/>',
+  deshacer: '<path d="M5.5 3.5 2.8 6.2l2.7 2.7"/><path d="M3 6.2h6.3a3.7 3.7 0 0 1 0 7.4H7"/>',
+  grafico: '<path d="M2 13.5h12"/><path d="M4 11V8M7 11V4.5M10 11V6.5M13 11V9"/>'
 };
 function icon(name, size = 16, cls = ''){
   return `<svg class="${cls}" viewBox="0 0 16 16" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
@@ -126,6 +128,32 @@ function traducirError(m){
   if(/Failed to fetch|NetworkError|network/i.test(m)) return 'No hay conexión. Revisá internet y probá de nuevo.';
   if(/duplicate key/i.test(m)) return 'Ya existe un registro igual.';
   return m;
+}
+
+/* animación de carga (la misma del arranque) */
+const LOADER_HTML = '<div class="ld-orbit" role="img" aria-label="Cargando">' + ['o1', 'o2', 'o3'].map(o => `<i class="${o}">${'<b></b>'.repeat(5)}</i>`).join('') + '<s></s></div>';
+
+/* ---------- campos obligatorios ---------- */
+// Asterisco rojo para la etiqueta de un campo obligatorio.
+const REQ = '<span class="req" title="Obligatorio" aria-hidden="true">*</span>';
+/* Marca en rojo un campo obligatorio sin completar, con el mensaje debajo; se limpia al corregirlo. Devuelve false. */
+function marcarFalta(campo, mensaje){
+  if(!campo){ toast(mensaje, 'err'); return false; }
+  const cont = campo.closest('.field') || campo.closest('.cline') || campo.parentElement;
+  let msg = [...cont.children].find(x => x.classList.contains('falta'));
+  if(!msg){ msg = document.createElement('div'); msg.className = 'falta'; msg.setAttribute('role', 'alert'); cont.append(msg); }
+  msg.innerHTML = `${icon('alerta', 13)}<span>${mensaje}</span>`;
+  campo.classList.add('invalido');
+  campo.setAttribute('aria-invalid', 'true');
+  const limpiar = () => {
+    campo.classList.remove('invalido'); campo.removeAttribute('aria-invalid'); msg.remove();
+    campo.removeEventListener('input', limpiar); campo.removeEventListener('change', limpiar);
+  };
+  campo.addEventListener('input', limpiar); campo.addEventListener('change', limpiar);
+  const foco = campo._selBtn || campo;
+  foco.scrollIntoView({ block: 'nearest' });
+  if(foco.focus) foco.focus({ preventScroll: true });
+  return false;
 }
 
 /* ---------- capas: panel lateral, diálogos, paleta ---------- */
