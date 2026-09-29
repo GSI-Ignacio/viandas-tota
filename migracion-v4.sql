@@ -276,4 +276,7 @@ drop trigger if exists comandas_despues on comandas;
 create trigger comandas_despues after insert or update or delete on comandas
   for each row execute function comandas_despues();
 
+-- que la API vea las columnas nuevas enseguida
+notify pgrst, 'reload schema';
+
 commit;

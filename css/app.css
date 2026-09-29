@@ -165,13 +165,37 @@ svg{display:block;flex:none}
 .seg button[aria-pressed="true"]{background:var(--active);color:var(--text)}
 .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:5px;
   border:1px solid var(--line-2);font-size:12px;line-height:1;color:var(--text-3);font-family:var(--font);flex:none}
-.inp,.field input,.field select,.field textarea{width:100%;height:36px;padding:0 10px;border:1px solid var(--line-2);border-radius:8px;
+.inp,.field input,.field select,.field textarea,.sel-btn{width:100%;height:36px;padding:0 10px;border:1px solid var(--line-2);border-radius:8px;
   background:var(--panel);color:var(--text);font-size:15px;outline:none;transition:border-color var(--t-fast) linear,box-shadow var(--t-fast) linear}
 .field textarea{height:auto;min-height:64px;padding:8px 10px;resize:vertical;line-height:1.45}
-.inp:focus,.field input:focus,.field select:focus,.field textarea:focus{border-color:color-mix(in srgb,var(--accent) 60%,transparent);
+.inp:focus,.field input:focus,.field select:focus,.field textarea:focus,.sel-btn:focus-visible,.sel-btn[aria-expanded="true"]{border-color:color-mix(in srgb,var(--accent) 60%,transparent);
   box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
 .inp.sm{height:32px;font-size:13px;border-radius:7px}
 .inp.search-inp{padding-left:30px;background:var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%236B6255' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='6' cy='6' r='4.5'/%3E%3Cpath d='m9.5 9.5 3 3'/%3E%3C/svg%3E") no-repeat 10px 50%}
+/* desplegables propios (el select nativo queda oculto al lado) */
+.sel-nat{position:absolute!important;width:1px!important;height:1px!important;margin:0!important;padding:0!important;border:0!important;
+  opacity:0;pointer-events:none;overflow:hidden;clip-path:inset(50%)}
+.sel-btn{display:inline-flex;align-items:center;gap:8px;padding:0 8px 0 10px;text-align:left;cursor:pointer;min-width:0}
+.sel-btn:hover:not(:disabled){border-color:color-mix(in srgb,var(--text) 22%,transparent)}
+.sel-btn:disabled{opacity:.55;cursor:default}
+.sel-btn .sel-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sel-btn svg{flex:none;color:var(--text-3);transition:transform var(--t-fast) linear}
+.sel-btn[aria-expanded="true"] svg{transform:rotate(180deg)}
+.sel-pop{position:fixed;z-index:200;display:flex;flex-direction:column;max-width:min(440px,calc(100vw - 16px));padding:4px;
+  background:var(--raised);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);outline:none;
+  animation:menuIn var(--t-fast) linear both}
+.sel-buscar{padding:2px 2px 6px;flex:none}
+.sel-buscar input::-webkit-search-cancel-button{display:none}
+.sel-lista{overflow-y:auto;min-height:0;overscroll-behavior:contain}
+.sel-grp{padding:9px 8px 4px;font-size:12px;font-weight:600;color:var(--text-3);letter-spacing:.02em}
+.sel-grp[hidden],.sel-opt[hidden]{display:none}
+.sel-opt{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:32px;padding:5px 8px;border-radius:6px;
+  font-size:14px;line-height:1.3;cursor:pointer;color:var(--text)}
+.sel-opt.on{background:var(--hover)}
+.sel-opt[aria-selected="true"]{font-weight:600}
+.sel-opt svg{flex:none;color:var(--accent)}
+.sel-opt[aria-disabled="true"]{opacity:.45;cursor:default}
+.sel-vacio{padding:8px;font-size:13px;color:var(--text-3)}
 .field{margin-bottom:12px}
 .field label,.flabel{display:block;font-size:13px;font-weight:500;color:var(--text-3);margin-bottom:5px}
 .field .help{font-size:12px;color:var(--text-3);margin-top:4px}
@@ -449,7 +473,7 @@ svg{display:block;flex:none}
 .stop .t{flex:1;min-width:0}
 .stop .t .n{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stop .t .s{font-size:13px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.stop select{height:26px;border:1px solid var(--line-2);border-radius:6px;background:var(--panel);font-size:13px;max-width:110px}
+.stop select,.stop .sel-btn{height:26px;border:1px solid var(--line-2);border-radius:6px;background:var(--panel);font-size:13px;max-width:110px;width:auto}
 .stop .ord{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:600;flex:none;background:var(--c,var(--text-3));color:#fff}
 .gacts{display:flex;gap:6px;flex-wrap:wrap;padding:8px 16px 12px;border-bottom:1px solid var(--line)}
 .myroute-map{height:240px;border-bottom:1px solid var(--line);position:relative}
@@ -506,7 +530,7 @@ svg{display:block;flex:none}
   .progress .meter{flex-basis:100%}
   .stop{flex-wrap:wrap;row-gap:6px}
   .stop .t{flex:1 1 calc(100% - 34px)}
-  .stop select{margin-left:32px;max-width:none;flex:1}
+  .stop select,.stop .sel-btn{margin-left:32px;max-width:none;flex:1}
   .cline{grid-template-columns:minmax(0,1fr) 70px 34px}
   .cline [data-campo="nota"]{grid-column:1 / 3;grid-row:2}
   .cline.cline-com,.cline.cline-com:has([data-campo="guarnicion"].hidden){grid-template-columns:minmax(0,1fr) 70px 34px}

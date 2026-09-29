@@ -409,3 +409,157 @@ function descargarArchivo(nombre, contenido, tipo = 'application/json'){
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 const COLORES_CADETE = ['#E2792B', '#2F4B3C', '#5C7A32', '#B23A2E', '#3E6E8E', '#8A5A9E', '#B8912A', '#6B6255'];
+
+/* ---------- desplegables con el estilo de la app ----------
+   El <select> nativo queda en la página (valor, change, labels) pero oculto; al lado va un botón
+   que abre una lista propia. En pantallas táctiles se deja el selector del teléfono. */
+const SELECT_NATIVO = matchMedia('(pointer: coarse)').matches;
+let selectAbierto = null;
+
+function mejorarSelect(sel){
+  if(SELECT_NATIVO || sel._selBtn || sel.multiple) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.setAttribute('aria-haspopup', 'listbox');
+  btn.setAttribute('aria-expanded', 'false');
+  sel._selBtn = btn;
+  sel.tabIndex = -1;
+  sel.classList.add('sel-nat');
+  sel.after(btn);
+  sincronizarSelect(sel);
+  sel.addEventListener('focus', () => btn.focus());
+  btn.addEventListener('click', () => selectAbierto && selectAbierto.sel === sel ? cerrarListaSelect() : abrirListaSelect(sel));
+  btn.addEventListener('keydown', (e) => {
+    if(['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)){ e.preventDefault(); abrirListaSelect(sel); }
+  });
+}
+
+function sincronizarSelect(sel){
+  const btn = sel && sel._selBtn; if(!btn) return;
+  btn.className = 'sel-btn ' + [...sel.classList].filter(c => c !== 'sel-nat').join(' ');
+  btn.style.cssText = sel.style.cssText;
+  btn.disabled = sel.disabled;
+  const lab = sel.id && document.querySelector(`label[for="${CSS.escape(sel.id)}"]`);
+  btn.setAttribute('aria-label', sel.getAttribute('aria-label') || (lab ? lab.textContent.trim() : ''));
+  const o = sel.options[sel.selectedIndex];
+  btn.innerHTML = `<span class="sel-txt">${esc(o ? o.textContent.trim() : '')}</span>${icon('chevD', 14)}`;
+}
+
+function abrirListaSelect(sel){
+  cerrarListaSelect();
+  const btn = sel._selBtn;
+  const pop = document.createElement('div');
+  pop.className = 'sel-pop'; pop.tabIndex = -1;
+  const conBuscar = sel.options.length > 8;
+  pop.innerHTML = (conBuscar ? '<div class="sel-buscar"><input class="inp sm" type="search" placeholder="Buscar…" aria-label="Buscar opción"></div>' : '')
+    + '<div class="sel-lista" role="listbox"></div><div class="sel-vacio hidden">Sin resultados</div>';
+  const lista = pop.querySelector('.sel-lista'), items = [];
+  const agregar = (opt, grupo) => {
+    if(opt.hidden) return;
+    const d = document.createElement('div');
+    d.className = 'sel-opt'; d.setAttribute('role', 'option'); d._opt = opt; d._grupo = grupo;
+    if(opt.disabled) d.setAttribute('aria-disabled', 'true');
+    if(opt.selected) d.setAttribute('aria-selected', 'true');
+    d.innerHTML = `<span>${esc(opt.textContent.trim())}</span>${opt.selected ? icon('check', 14) : ''}`;
+    lista.append(d); items.push(d);
+  };
+  for(const ch of sel.children){
+    if(ch.tagName === 'OPTGROUP'){
+      const g = document.createElement('div'); g.className = 'sel-grp'; g.textContent = ch.label; lista.append(g);
+      for(const o of ch.children) agregar(o, g);
+    } else if(ch.tagName === 'OPTION') agregar(ch, null);
+  }
+  document.body.append(pop);
+
+  // debajo del botón, o arriba si no entra
+  const r = btn.getBoundingClientRect(), vw = innerWidth, vh = innerHeight;
+  pop.style.minWidth = Math.max(r.width, 160) + 'px';
+  const abajo = vh - r.bottom - 12, arriba = r.top - 12;
+  if(abajo >= Math.min(pop.offsetHeight, 240) || abajo >= arriba){ pop.style.top = (r.bottom + 4) + 'px'; pop.style.maxHeight = Math.min(360, abajo) + 'px'; }
+  else { pop.style.bottom = (vh - r.top + 4) + 'px'; pop.style.maxHeight = Math.min(360, arriba) + 'px'; }
+  pop.style.left = Math.max(8, Math.min(r.left, vw - pop.offsetWidth - 8)) + 'px';
+
+  let activo = null;
+  const elegibles = () => items.filter(d => !d.hidden && !d._opt.disabled);
+  const marcar = (d, mover = true) => { items.forEach(x => x.classList.toggle('on', x === d)); activo = d || null; if(d && mover) d.scrollIntoView({ block: 'nearest' }); };
+  const elegir = (d) => {
+    if(!d || d._opt.disabled) return;
+    const cambio = sel.selectedIndex !== d._opt.index;
+    sel.selectedIndex = d._opt.index;
+    cerrarListaSelect(); btn.focus();
+    if(cambio){ sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  };
+  marcar(items.find(d => d._opt.selected && !d._opt.disabled) || elegibles()[0]);
+
+  lista.addEventListener('mousedown', (e) => e.preventDefault());
+  lista.addEventListener('click', (e) => elegir(e.target.closest('.sel-opt')));
+  lista.addEventListener('mousemove', (e) => { const d = e.target.closest('.sel-opt'); if(d && d !== activo && !d._opt.disabled) marcar(d, false); });
+  pop.addEventListener('keydown', (e) => {
+    const vis = elegibles(), i = vis.indexOf(activo);
+    if(e.key === 'ArrowDown'){ e.preventDefault(); marcar(vis[Math.min(vis.length - 1, i + 1)] || vis[0]); }
+    else if(e.key === 'ArrowUp'){ e.preventDefault(); marcar(vis[Math.max(0, i - 1)] || vis[0]); }
+    else if(e.key === 'Home' && !conBuscar){ e.preventDefault(); marcar(vis[0]); }
+    else if(e.key === 'End' && !conBuscar){ e.preventDefault(); marcar(vis[vis.length - 1]); }
+    else if(e.key === 'Enter'){ e.preventDefault(); elegir(activo); }
+    else if(e.key === 'Tab'){ cerrarListaSelect(); }
+    else if(!conBuscar && e.key.length === 1){   // saltar a la opción que empieza con esa letra
+      const k = normalizarNombre(e.key), desde = vis.slice(i + 1).concat(vis.slice(0, i + 1));
+      const d = desde.find(x => normalizarNombre(x.textContent).startsWith(k)); if(d) marcar(d);
+    }
+  });
+  const buscar = pop.querySelector('.sel-buscar input');
+  if(buscar){
+    buscar.addEventListener('input', () => {
+      const q = normalizarNombre(buscar.value);
+      items.forEach(d => { d.hidden = !!q && !normalizarNombre(d.textContent).includes(q); });
+      lista.querySelectorAll('.sel-grp').forEach(g => { g.hidden = !items.some(d => d._grupo === g && !d.hidden); });
+      pop.querySelector('.sel-vacio').classList.toggle('hidden', items.some(d => !d.hidden));
+      marcar(elegibles()[0]);
+    });
+    buscar.focus();
+  } else pop.focus();
+
+  abrirCapa(pop, cerrarListaSelect);
+  selectAbierto = { sel, pop };
+  btn.setAttribute('aria-expanded', 'true');
+}
+
+function cerrarListaSelect(){
+  if(!selectAbierto) return;
+  const { sel, pop } = selectAbierto;
+  selectAbierto = null;
+  const teniaFoco = pop.contains(document.activeElement);
+  quitarCapa(pop); pop.remove();
+  if(sel._selBtn){ sel._selBtn.setAttribute('aria-expanded', 'false'); if(teniaFoco && sel._selBtn.isConnected) sel._selBtn.focus(); }
+}
+
+document.addEventListener('mousedown', (e) => {
+  if(selectAbierto && !selectAbierto.pop.contains(e.target) && !selectAbierto.sel._selBtn.contains(e.target)) cerrarListaSelect();
+}, true);
+document.addEventListener('scroll', (e) => { if(selectAbierto && !selectAbierto.pop.contains(e.target)) cerrarListaSelect(); }, true);
+addEventListener('resize', () => cerrarListaSelect());
+
+// que el botón siga al select cuando el código cambia su valor
+for(const prop of ['value', 'selectedIndex']){
+  const d = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, prop);
+  Object.defineProperty(HTMLSelectElement.prototype, prop, { ...d, set(v){ d.set.call(this, v); if(this._selBtn) sincronizarSelect(this); } });
+}
+
+// cada select que aparece en la página se mejora solo; si se va, se lleva su botón
+new MutationObserver((muts) => {
+  for(const m of muts){
+    if(m.type === 'attributes'){ if(m.target.tagName === 'SELECT') sincronizarSelect(m.target); continue; }
+    if(m.target.tagName === 'SELECT' || m.target.tagName === 'OPTGROUP') sincronizarSelect(m.target.closest('select'));
+    m.removedNodes.forEach(n => {
+      if(n.nodeType !== 1) return;
+      (n.tagName === 'SELECT' ? [n] : n.querySelectorAll('select')).forEach(s => {
+        if(!s.isConnected && s._selBtn){ if(selectAbierto && selectAbierto.sel === s) cerrarListaSelect(); s._selBtn.remove(); }
+      });
+    });
+    m.addedNodes.forEach(n => {
+      if(n.nodeType !== 1) return;
+      if(n.tagName === 'SELECT') mejorarSelect(n); else n.querySelectorAll('select').forEach(mejorarSelect);
+    });
+  }
+}).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'disabled', 'style'] });
+document.querySelectorAll('select').forEach(mejorarSelect);
