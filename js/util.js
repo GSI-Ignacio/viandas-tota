@@ -107,6 +107,7 @@ function icon(name, size = 16, cls = ''){
 /* ---------- avisos (toasts) ---------- */
 /* accion: { label, fn } agrega un botón (por ejemplo "Deshacer"). */
 function toast(msg, tipo = 'ok', ms, accion){
+  if(avisosEnSilencio){ avisosEnSilencio.push(msg); return; }
   const root = document.getElementById('toast-root');
   const el = document.createElement('div');
   el.className = 'toast ' + tipo;
@@ -131,14 +132,94 @@ function traducirError(m){
   return m;
 }
 
+/* ---------- formularios: obligatorios y cambios ----------
+   Cada campo obligatorio (su etiqueta lleva REQ, o el campo data-req) tiene el borde rojo mientras
+   está vacío, y los botones de guardar quedan apagados hasta que esté todo lo necesario (completo()
+   suma otras condiciones, con los mismos marcarFalta de siempre, que acá no muestran nada).
+   Con cambios: true (al editar algo que ya existe) cada campo cambiado se marca y los botones se
+   prenden recién cuando hay algún cambio; si todo vuelve a como estaba, se vuelven a apagar. */
+function formulario(root, { botones, cambios = false, completo = null, extra = null } = {}){
+  // la ventana se reusa (abrirPanel): el formulario anterior deja de escuchar
+  if(root._formulario) root._formulario.quitar();
+  const bs = [].concat(botones).filter(Boolean);
+  const campos = () => [...root.querySelectorAll('input, select, textarea')].filter(x => x.type !== 'search' && x.type !== 'file');
+  const valor = (x) => x.type === 'checkbox' || x.type === 'radio' ? x.checked : x.value;
+  const firma = () => JSON.stringify([campos().map(valor), extra ? extra() : null]);
+  const oculto = (x) => x.disabled || !!x.closest('.hidden') || x.classList.contains('hidden');
+  const requeridos = () => {
+    const xs = new Set(root.querySelectorAll('[data-req]'));
+    root.querySelectorAll('label .req').forEach(r => {
+      const lab = r.closest('label');
+      const x = lab.htmlFor ? root.querySelector('#' + CSS.escape(lab.htmlFor)) : lab.closest('.field') && lab.closest('.field').querySelector('input, select, textarea');
+      if(x) xs.add(x);
+    });
+    return [...xs];
+  };
+  const vacio = (x) => String(x.value).trim() === '' || (x.dataset.req && x.value === x.dataset.req);
+  // el aviso de lo que falta, al lado de los botones
+  const pie = bs[0] && bs[0].parentElement;
+  let aviso = pie && pie.querySelector('.form-aviso');
+  if(pie && !aviso){
+    aviso = document.createElement('span'); aviso.className = 'form-aviso'; aviso.setAttribute('aria-live', 'polite');
+    const sp = pie.querySelector(':scope > .sp'); if(sp) sp.after(aviso); else pie.prepend(aviso);
+  }
+  let inicial = new Map(), firmaInicial = '';
+  const foto = () => { inicial = new Map(campos().map(x => [x, valor(x)])); firmaInicial = firma(); };
+  const revisar = () => {
+    if(!root.isConnected) return;
+    let faltan = false;
+    for(const x of requeridos()){ const v = !oculto(x) && vacio(x); x.classList.toggle('req-vacio', v); if(v) faltan = true; }
+    let hay = true;
+    if(cambios){
+      for(const x of campos()){
+        const ch = !inicial.has(x) || inicial.get(x) !== valor(x);
+        ((x.type === 'checkbox' || x.type === 'radio') && x.closest('label') ? x.closest('label') : x).classList.toggle('cambiado', ch);
+      }
+      hay = firma() !== firmaInicial;
+    }
+    let otro = '';
+    if(!faltan && completo){
+      const prev = avisosEnSilencio; avisosEnSilencio = [];
+      try{ if(!completo()) otro = avisosEnSilencio[0] || 'Falta completar algo.'; }
+      finally{ avisosEnSilencio = prev; }
+    }
+    const ok = !faltan && !otro && hay;
+    const motivo = faltan ? 'Completá los campos en rojo.' : otro ? String(otro).replace(/<[^>]+>/g, '') : hay ? '' : 'Todavía no cambiaste nada.';
+    bs.forEach(b => { if(!b.classList.contains('busy')) b.disabled = !ok; b.title = motivo; });
+    const t = faltan || otro ? motivo : '';
+    if(aviso && aviso.textContent !== t) aviso.textContent = t;   // solo si cambia: si no, el observador se dispararía de nuevo
+  };
+  let pend = false;
+  const pronto = () => { if(pend) return; pend = true; setTimeout(() => { pend = false; revisar(); }, 0); };
+  const obs = new MutationObserver(pronto);
+  const quitar = () => {
+    root.removeEventListener('input', revisar); root.removeEventListener('change', revisar);
+    root.removeEventListener('click', pronto); root.removeEventListener('ubicacion', revisar);
+    obs.disconnect();
+    if(root._formulario === api) root._formulario = null;
+  };
+  root.addEventListener('input', revisar);
+  root.addEventListener('change', revisar);
+  root.addEventListener('click', pronto);
+  root.addEventListener('ubicacion', revisar);
+  obs.observe(root, { childList: true, subtree: true });
+  const api = { revisar, foto, quitar };
+  root._formulario = api;
+  foto(); revisar();
+  return api;
+}
+
 /* animación de carga (la misma del arranque) */
 const LOADER_HTML = '<div class="ld-orbit" role="img" aria-label="Cargando">' + ['o1', 'o2', 'o3'].map(o => `<i class="${o}">${'<b></b>'.repeat(5)}</i>`).join('') + '<s></s></div>';
 
 /* ---------- campos obligatorios ---------- */
-// Asterisco rojo para la etiqueta de un campo obligatorio.
-const REQ = '<span class="req" title="Obligatorio" aria-hidden="true">*</span>';
-/* Marca en rojo un campo obligatorio sin completar, con el mensaje debajo; se limpia al corregirlo. Devuelve false. */
+// Va en la etiqueta de un campo obligatorio: no se ve (el campo vacío lleva el borde rojo), lo leen los lectores de pantalla.
+const REQ = '<span class="req"> (obligatorio)</span>';
+/* Marca en rojo un campo obligatorio sin completar, con el mensaje debajo; se limpia al corregirlo. Devuelve false.
+   Mientras un formulario se revisa en silencio (ver formulario()), solo anota el mensaje. */
+let avisosEnSilencio = null;
 function marcarFalta(campo, mensaje){
+  if(avisosEnSilencio){ avisosEnSilencio.push(mensaje); return false; }
   if(!campo){ toast(mensaje, 'err'); return false; }
   const cont = campo.closest('.field') || campo.closest('.cline') || campo.parentElement;
   let msg = [...cont.children].find(x => x.classList.contains('falta'));
@@ -241,6 +322,10 @@ function dialogo({ titulo, texto = '', html = '', botones = [{ id:'ok', label:'A
     scrim.addEventListener('click', () => fin(null));
     abrirCapa(el, () => fin(null));
     if(onMount) onMount(el);
+    // botón principal apagado hasta que esté lo necesario (y, si edita algo, hasta que haya cambios)
+    const prim = [...el.querySelectorAll('.foot .btn.primary[data-b]')];
+    if(prim.length && (el._validar || el.querySelector('label .req') || el._cambios))
+      el._form = formulario(el, { botones: prim, cambios: !!el._cambios, completo: el._validar ? () => el._validar(prim[0].dataset.b) : null });
     const f = el.querySelector('[autofocus]') || el.querySelector('input,select,textarea') || el.querySelector('.foot .btn:last-child');
     if(f) setTimeout(() => f.focus(), 30);
   });

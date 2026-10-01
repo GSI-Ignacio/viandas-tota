@@ -238,7 +238,16 @@ svg{display:block;flex:none}
 .sel-vacio{padding:8px;font-size:13px;color:var(--text-3)}
 .field{margin-bottom:12px}
 /* obligatorios: asterisco rojo en la etiqueta; al faltar, el campo en rojo con el mensaje debajo */
-.req{color:var(--bad);margin-left:3px;font-weight:700}
+/* obligatorio: el texto solo para lectores de pantalla; el campo vacío lleva el borde rojo */
+.req{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.req-vacio,.sel-btn.req-vacio{border-color:var(--bad)!important}
+/* campo cambiado (al editar algo que ya existe) */
+/* en azul, para no confundirlo con el naranja del campo donde está el cursor */
+.cambiado,.sel-btn.cambiado{border-color:var(--pack)!important;background:color-mix(in srgb,var(--pack) 12%,var(--panel))!important}
+.days label.cambiado span{outline:2px solid var(--pack);outline-offset:1px}
+.form-aviso{font-size:13px;color:var(--bad-ink);margin-right:auto;min-width:0}
+.form-aviso:empty{display:none}
+.btn.primary:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 .inp.invalido,.field .invalido,.sel-btn.invalido,.cline .invalido{border-color:var(--bad)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 18%,transparent)!important}
 .falta{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;font-weight:500;color:var(--bad-ink);animation:rise .2s var(--ease) both}
 .falta svg{color:var(--bad);flex:none}

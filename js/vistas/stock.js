@@ -174,6 +174,8 @@ function abrirProducto(id){
       };
       if(nombreInp) nombreInp.addEventListener('input', avisarExiste);
       const guardar = el.querySelector('#guardar-producto');
+      if(guardar) formulario(el, { botones: guardar, cambios: !!p,
+        completo: () => existente() ? marcarFalta(nombreInp, `Ya existe ${existente().nombre}: para sumarle stock usá Cargar stock.`) : true });
       if(guardar) guardar.addEventListener('click', async () => {
         const nombre = el.querySelector('#f-prod-nombre').value.trim();
         if(!nombre){ marcarFalta(el.querySelector('#f-prod-nombre'), 'Poné un nombre para el producto.'); return; }
@@ -343,6 +345,7 @@ function abrirMenu(id){
       bind();
       el.querySelector('#menu-agregar').addEventListener('click', () => { cont.insertAdjacentHTML('beforeend', filaComponenteHtml({ productoId: '', cantidad: 1 }, cont.children.length)); bind(); });
       el.querySelector('#cancelar-menu').addEventListener('click', () => cerrarPanel());
+      formulario(el, { botones: el.querySelector('#guardar-menu'), cambios: !!m });
       el.querySelector('#guardar-menu').addEventListener('click', async (ev) => {
         const nombre = el.querySelector('#f-menu-nombre').value.trim();
         if(!nombre){ marcarFalta(el.querySelector('#f-menu-nombre'), 'Poné un nombre para el menú.'); return; }
@@ -410,16 +413,20 @@ function abrirCargaStock(pid, hecho){
       bind();
       el.querySelector('#cs-agregar').addEventListener('click', () => { cont.insertAdjacentHTML('beforeend', lineaCargaHtml('')); bind(); cont.lastElementChild.querySelector('select').focus(); });
       el.querySelector('#cs-cerrar').addEventListener('click', () => cerrarPanel());
-      el.querySelector('#guardar-stock').addEventListener('click', async (ev) => {
-        const lineas = [...cont.querySelectorAll('.cline')].map(r => ({ p: state.productos.find(x => x.id === r.querySelector('[data-campo="producto"]').value), q: Number(r.querySelector('[data-campo="cantidad"]').value) || 0 }));
-        const validas = lineas.filter(l => l.p && l.q > 0);
-        const filas = [...cont.querySelectorAll('.cline')];
+      const leerCarga = () => [...cont.querySelectorAll('.cline')].map(r => ({ p: state.productos.find(x => x.id === r.querySelector('[data-campo="producto"]').value), q: Number(r.querySelector('[data-campo="cantidad"]').value) || 0 }));
+      // cada producto elegido necesita su cantidad (y cada cantidad, su producto)
+      const validarCarga = () => {
+        const lineas = leerCarga(), filas = [...cont.querySelectorAll('.cline')];
         const mala = filas.find((r, i) => (lineas[i].p && !(lineas[i].q > 0)) || (!lineas[i].p && lineas[i].q > 0));
-        if(!validas.length || mala){
-          const r = mala || filas[0], i = filas.indexOf(r);
-          const falta = lineas[i] && lineas[i].p ? r.querySelector('[data-campo="cantidad"]') : r.querySelector('[data-campo="producto"]');
-          marcarFalta(falta, falta && falta.dataset.campo === 'cantidad' ? 'Poné la cantidad.' : 'Elegí el producto.'); return;
-        }
+        if(lineas.some(l => l.p && l.q > 0) && !mala) return true;
+        const r = mala || filas[0], i = filas.indexOf(r);
+        const falta = lineas[i] && lineas[i].p ? r.querySelector('[data-campo="cantidad"]') : r.querySelector('[data-campo="producto"]');
+        return marcarFalta(falta, falta && falta.dataset.campo === 'cantidad' ? 'Poné la cantidad.' : 'Elegí el producto y poné la cantidad.');
+      };
+      formulario(el, { botones: el.querySelector('#guardar-stock'), completo: validarCarga });
+      el.querySelector('#guardar-stock').addEventListener('click', async (ev) => {
+        if(!validarCarga()) return;
+        const validas = leerCarga().filter(l => l.p && l.q > 0);
         const b = ev.currentTarget; b.disabled = true;
         const fecha = el.querySelector('#cs-fecha').value || todayStr(), nota = el.querySelector('#cs-nota').value.trim();
         try{

@@ -63,6 +63,7 @@ function abrirCadete(id){
         el.querySelectorAll('[name="f-cad-color"]').forEach(x => { x.nextElementSibling.style.boxShadow = x.checked ? `0 0 0 2px var(--panel),0 0 0 4px ${x.value}` : ''; });
       }));
       el.querySelector('#cancelar-cad').addEventListener('click', () => cerrarPanel());
+      formulario(el, { botones: el.querySelector('#guardar-cadete'), cambios: !!k });
       el.querySelector('#guardar-cadete').addEventListener('click', async () => {
         const nombre = el.querySelector('#f-cad-nombre').value.trim();
         if(!nombre){ marcarFalta(el.querySelector('#f-cad-nombre'), 'Poné el nombre del cadete.'); return; }

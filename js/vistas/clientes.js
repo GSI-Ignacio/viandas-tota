@@ -121,6 +121,7 @@ function dialogoAjusteCreditos(c, alTerminar){
       };
       inp.addEventListener('input', pintar); inp.select && setTimeout(() => inp.select(), 40); pintar();
       el._validar = () => inp.value === '' ? marcarFalta(inp, 'Escribí cuántos créditos tiene que tener.') : true;
+      el._cambios = true;
     }
   }).then(async (r) => {
     if(!r) return;
@@ -159,6 +160,7 @@ function dialogoPago(c, alTerminar, pago, { renovar = false } = {}){
       ? [{ id: 'borrar', label: 'Borrar pago', clase: 'danger', domId: 'borrar-pago' }, { id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Guardar cambios', clase: 'primary', domId: 'confirmar-pago' }]
       : [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Guardar pago', clase: 'primary', domId: 'confirmar-pago' }],
     onMount: (el) => {
+      el._cambios = !!corregir;
       el._validar = (boton) => {
         if(boton === 'borrar') return true;
         const v = Math.trunc(Number(el.querySelector('#f-pago-viandas').value));
@@ -213,6 +215,7 @@ function bindUbicacion(el, pre, datos){
   const poner = (lat, lng, centrar) => {
     ubic.lat = lat; ubic.lng = lng;
     txt.textContent = `Punto en el mapa: ${coordTxt(ubic)} · podés arrastrarlo para ajustar`;
+    txt.dispatchEvent(new Event('ubicacion', { bubbles: true }));   // para que el formulario note el cambio
     if(!map) return;
     if(!marker){
       marker = window.L.marker([lat, lng], { draggable: true, icon: pinIcono('', '#E2792B') }).addTo(map);
@@ -377,6 +380,8 @@ function abrirCliente(id){
         tipoSel.addEventListener('change', () => { if(!ini.dataset.editado) ini.value = creditosAlAlta(tipoSel.value); });
       }
       const ubic = bindUbicacion(el, 'f', d);
+      // guardar se prende con el nombre puesto y, en un cliente que ya existe, recién cuando hay cambios
+      formulario(el, { botones: el.querySelector('#guardar-cliente'), cambios: !!c, extra: () => [ubic.lat ?? null, ubic.lng ?? null] });
       el.querySelector('#cancelar-modal').addEventListener('click', () => cerrarPanel());
       const bp = el.querySelector('#btn-pago');
       if(bp) bp.addEventListener('click', () => dialogoPago(c, () => { refrescar(); abrirCliente(c.id); }));

@@ -209,9 +209,9 @@ function lineaComandaHtml(l, i, fecha, cli){
   const def = precioPara(cli, l.menuId), val = l.precio != null ? l.precio : def;
   const auto = l.precio == null || l.precio === def;
   return `<div class="cline cline-com" data-i="${i}">
-    <select class="inp" data-campo="menu" aria-label="Menú">${opcionesMenu(l.menuId, fecha)}</select>
+    <select class="inp" data-campo="menu" data-req="${ELEGIR}" aria-label="Menú">${opcionesMenu(l.menuId, fecha)}</select>
     <select class="inp ${m && m.llevaGuarnicion ? '' : 'hidden'}" data-campo="guarnicion" aria-label="Guarnición">${opcionesGuarnicion(l.guarnicionId, fecha)}</select>
-    <input type="number" class="inp" data-campo="cantidad" min="1" step="1" value="${l.cantidad}" aria-label="Cantidad">
+    <input type="number" class="inp" data-campo="cantidad" data-req min="1" step="1" value="${l.cantidad}" aria-label="Cantidad">
     <input type="number" class="inp" data-campo="precio" min="0" step="100" value="${val ?? ''}" placeholder="$" aria-label="Precio por plato" title="Precio por plato" data-auto="${auto ? 1 : 0}">
     <input type="text" class="inp" data-campo="nota" value="${esc(l.nota || '')}" placeholder="Nota (sin sal, dieta…)" aria-label="Nota">
     <button class="iconbtn" type="button" data-quitar-linea="${i}" aria-label="Quitar" title="Quitar">${icon('x', 14)}</button></div>`;
@@ -279,7 +279,25 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
         el.querySelector('#com-vacio').hidden = cont.children.length > 0;
         const hint = el.querySelector('#com-precio-hint');
         if(hint) hint.textContent = cli && cli.precioVianda != null ? `Precio de ${cli.nombre}: ${fmtPlata(cli.precioVianda)} por plato. Se puede cambiar en cada plato.` : '';
-        cont.querySelectorAll('.cline').forEach(r => { const m = menuPorId(r.querySelector('[data-campo="menu"]').value); r.querySelector('[data-campo="guarnicion"]').classList.toggle('hidden', !(m && m.llevaGuarnicion)); });
+        cont.querySelectorAll('.cline').forEach(r => {
+          const m = menuPorId(r.querySelector('[data-campo="menu"]').value), sg = r.querySelector('[data-campo="guarnicion"]');
+          sg.classList.toggle('hidden', !(m && m.llevaGuarnicion));
+          sg.toggleAttribute('data-req', !!(m && m.llevaGuarnicion && guarniciones().length));   // si lleva guarnición, es obligatoria
+        });
+      };
+      // lo que hace falta para guardar: al menos un plato con cantidad, cada uno con su plato y su guarnición
+      const validar = () => {
+        if(nueva && !clienteActual()) return marcarFalta(el.querySelector('#f-com-cliente'), 'Elegí el cliente del pedido.');
+        const filas = [...cont.querySelectorAll('.cline')], cant = (r) => Number(r.querySelector('[data-campo="cantidad"]').value) || 0;
+        if(!filas.some(r => cant(r) > 0)) return marcarFalta(cont.querySelector('[data-campo="cantidad"]') || el.querySelector('#com-agregar'), 'Agregá al menos un plato con cantidad.');
+        const sinPlato = filas.find(r => r.querySelector('[data-campo="menu"]').value === ELEGIR && cant(r) > 0);
+        if(sinPlato) return marcarFalta(sinPlato.querySelector('[data-campo="menu"]'), 'Elegí el plato.');
+        const filaSinG = filas.find(r => {
+          const m = menuPorId(r.querySelector('[data-campo="menu"]').value);
+          return cant(r) > 0 && m && m.llevaGuarnicion && !r.querySelector('[data-campo="guarnicion"]').value && guarniciones().length;
+        });
+        if(filaSinG) return marcarFalta(filaSinG.querySelector('[data-campo="guarnicion"]'), `Elegí la guarnición de <b>${esc(menuPorId(filaSinG.querySelector('[data-campo="menu"]').value).nombre)}</b>.`);
+        return true;
       };
       const bind = () => {
         cont.querySelectorAll('input,select').forEach(x => { x.disabled = !editable; x.addEventListener('input', actualizar); x.addEventListener('change', actualizar); });
@@ -361,19 +379,13 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
         catch(err){ toastError('No se pudo eliminar el pedido', err); }
       });
       const guardar = el.querySelector('#guardar-comanda');
+      // guardar se prende con todo lo necesario y, en un pedido que ya existe, recién cuando hay cambios
+      if(guardar) formulario(el, { botones: guardar, cambios: !!ped, completo: validar });
       if(guardar) guardar.addEventListener('click', async () => {
+        if(!validar()) return;
         const cli = clienteActual();
-        if(!cli){ marcarFalta(el.querySelector('#f-com-cliente'), 'Elegí el cliente del pedido.'); return; }
         const fch = nueva ? (el.querySelector('#f-com-fecha').value || fecha) : fecha;
         const ls = leer().filter(l => l.cantidad > 0);
-        if(!ls.length){ marcarFalta(cont.querySelector('[data-campo="cantidad"]') || el.querySelector('#com-agregar'), 'Agregá al menos un plato con cantidad.'); return; }
-        const sinPlato = [...cont.querySelectorAll('.cline')].find(r => r.querySelector('[data-campo="menu"]').value === ELEGIR && (Number(r.querySelector('[data-campo="cantidad"]').value) || 0) > 0);
-        if(sinPlato){ marcarFalta(sinPlato.querySelector('[data-campo="menu"]'), 'Elegí el plato.'); return; }
-        const filaSinG = [...cont.querySelectorAll('.cline')].find(r => {
-          const m = menuPorId(r.querySelector('[data-campo="menu"]').value);
-          return (Number(r.querySelector('[data-campo="cantidad"]').value) || 0) > 0 && m && m.llevaGuarnicion && !r.querySelector('[data-campo="guarnicion"]').value && guarniciones().length;
-        });
-        if(filaSinG){ marcarFalta(filaSinG.querySelector('[data-campo="guarnicion"]'), `Elegí la guarnición de <b>${esc(menuPorId(filaSinG.querySelector('[data-campo="menu"]').value).nombre)}</b>.`); return; }
         guardar.disabled = true;
         try{
           if(!state.fechasCargadas.has(fch)) await asegurarFecha(fch);
