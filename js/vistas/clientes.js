@@ -15,6 +15,8 @@ function tipoTag(c){ return `<span class="tag ${c.tipo === 'empresa' ? 'pine' : 
 function daychipsHtml(dias){ return `<span class="daychips" aria-label="Días: ${dias.map(d => DIAS_LARGOS[d - 1]).join(', ')}">${DIAS_CORTOS.map((l, i) => `<i class="${dias.includes(i + 1) ? 'on' : ''}">${l}</i>`).join('')}</span>`; }
 // días que se proponen al dar de alta: solo los packs reciben fijo; casuales, empresas y sanatorios piden cuando quieren
 const diasAlAlta = (tipo) => tipo === 'pack' ? [1, 2, 3, 4, 5] : [];
+// empresas y sanatorios arrancan sin menús por día: se cargan a mano al darlos de alta
+const menusAlAlta = (tipo) => tipo === 'empresa' || tipo === 'sanatorio' ? 0 : 1;
 function llevaTxt(c){
   if(c.tipo === 'casual' && !c.dias.length) return '—';
   const n = viandasPorDia(c);
@@ -257,7 +259,7 @@ function abrirCliente(id){
   if(!esDueno()) return abrirClienteLectura(c);
 
   const d = c || { nombre: '', tipo: 'casual', empresaNombre: '', telefono: '', notas: '', direccion: '', referencia: '', lat: null, lng: null,
-                   dias: diasAlAlta('casual'), cantAlmuerzo: 1, cantCena: 0, cadeteId: null, activo: true };
+                   dias: diasAlAlta('casual'), cantAlmuerzo: menusAlAlta('casual'), cantCena: 0, cadeteId: null, activo: true };
   const sal = c ? (state.saldos[c.id] || { pagado: 0, consumido: 0, saldo: 0 }) : null;
   const modo = c ? modoPago(c) : null, sv = c ? saldoDe(c.id) : 0;
   // pack: créditos prepagos · sanatorio/empresa: cuenta que se cobra a fin de semana · casual: no usa créditos
@@ -334,7 +336,7 @@ function abrirCliente(id){
         <div class="field"><label for="f-menu-almuerzo">Menú habitual</label><select id="f-menu-almuerzo">${opcionesMenu(d.menuAlmuerzoId || d.menuCenaId)}</select>
           <div class="help">Lo que se le prepara: se descuenta del stock en cada entrega.</div></div>
         <div id="grupo-defaults" class="${d.tipo === 'casual' ? 'hidden' : ''}"><div class="frow">
-          <div class="field"><label for="f-cant-menus">Menús por día</label><input type="number" id="f-cant-menus" min="0" step="1" value="${d.cantAlmuerzo + d.cantCena}"></div>
+          <div class="field"><label for="f-cant-menus">Menús por día</label><input type="number" id="f-cant-menus" min="0" step="1" value="${(d.cantAlmuerzo + d.cantCena) || ''}" placeholder="Ej: 10"></div>
           ${state.versionBase >= 10 ? `<div class="field"><label for="f-precio-vianda">Precio por plato</label>
             <input type="number" id="f-precio-vianda" min="0" step="100" value="${d.precioVianda ?? ''}" placeholder="El de la carta"></div>` : ''}
         </div>
@@ -362,7 +364,10 @@ function abrirCliente(id){
         el.querySelector('#grupo-defaults').classList.toggle('hidden', tipoSel.value === 'casual');
         // cliente nuevo: los días siguen al tipo, salvo que ya los hayan marcado a mano
         if(!c && !diasEl.dataset.editado){ const ds = diasAlAlta(tipoSel.value); el.querySelectorAll('[name="f-dias"]').forEach(x => { x.checked = ds.includes(Number(x.value)); }); }
+        if(!c && !cantEl.dataset.editado) cantEl.value = menusAlAlta(tipoSel.value) || '';
       });
+      const cantEl = el.querySelector('#f-cant-menus');
+      cantEl.addEventListener('input', () => { cantEl.dataset.editado = '1'; });
       const diasEl = el.querySelector('.days');
       diasEl.addEventListener('change', () => { diasEl.dataset.editado = '1'; });
       // los créditos al alta siguen al tipo, salvo que ya los hayan escrito a mano
@@ -391,7 +396,8 @@ function abrirCliente(id){
           direccion: el.querySelector('#f-direccion').value.trim(), referencia: el.querySelector('#f-referencia').value.trim(),
           lat: ubic.lat ?? null, lng: ubic.lng ?? null, dias,
           // una sola unidad: los menús del día (se guardan en el turno principal)
-          cantAlmuerzo: Math.max(0, Math.trunc(Number(el.querySelector('#f-cant-menus').value) || 0)),
+          // el casual no ve el campo: si tiene días marcados recibe uno por día
+          cantAlmuerzo: Math.max(tipoSel.value === 'casual' ? 1 : 0, Math.trunc(Number(cantEl.value) || 0)),
           cantCena: 0,
           cadeteId: el.querySelector('#f-cadete').value || null,
           menuAlmuerzoId: el.querySelector('#f-menu-almuerzo').value || null,
