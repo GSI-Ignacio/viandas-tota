@@ -158,7 +158,8 @@ function htmlEstadisticas(a, b, r){
     : '<div class="est-vacio">Todavía no hay entregas en este período.</div>';
 
   // créditos: lo que ya está pago y falta entregar (hoy, no depende del período)
-  const porEntregar = clientesActivos().reduce((s, c) => s + Math.max(0, saldoDe(c.id)), 0);
+  const porEntregar = clientesActivos().filter(usaCreditos).reduce((s, c) => s + Math.max(0, saldoDe(c.id)), 0);
+  const aCobrar = clientesQueDeben().reduce((s, c) => s - saldoDe(c.id), 0);
   const sinSaldo = clientesSinSaldo().length, porVencer = clientesPorVencer().length;
 
   return `<div class="page est-page">
@@ -194,6 +195,7 @@ function htmlEstadisticas(a, b, r){
           <div><span>Vendidos en el período</span><b>${fmtNum(a.creditos)}</b>${deltaHtml(a.creditos, b.creditos)}</div>
           <div><span>Clientes sin créditos</span><b class="${sinSaldo ? 'bad' : ''}">${sinSaldo}</b></div>
           <div><span>Por quedarse sin créditos</span><b class="${porVencer ? 'warn' : ''}">${porVencer}</b></div>
+          <div><span>A cobrar (sanatorios y empresas)</span><b class="${aCobrar ? 'debe' : ''}">${plural(aCobrar, 'vianda')}</b></div>
         </div></section>
       <section class="est-card"><h3>Stock más usado <span class="n">en el período</span></h3>${lista(topProds, 'Todavía no salió stock en este período.')}</section>
     </div>

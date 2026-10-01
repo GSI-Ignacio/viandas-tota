@@ -328,16 +328,27 @@ function clientePendiente(c, fecha){ return turnosDe(c, fecha).some(t => turnoPe
 
 /* ---------- saldo de viandas ---------- */
 const saldoDe = (id) => (state.saldos[id] ? state.saldos[id].saldo : 0);
+/* Cómo paga cada tipo de cliente:
+   'prepago' (pack de dietas): compra créditos antes; sin créditos no se le entrega.
+   'cuenta' (sanatorio, empresa): se le entrega igual y lo que debe se cobra a fin de semana.
+   'sin' (casual): paga cada pedido, no usa créditos. */
+function modoPago(c){ return c.tipo === 'pack' ? 'prepago' : (c.tipo === 'sanatorio' || c.tipo === 'empresa') ? 'cuenta' : 'sin'; }
+const usaCreditos = (c) => modoPago(c) === 'prepago';
+/* 'ok' | 'warn' | 'bad' para los prepagos; 'debe' (amarillo) para la cuenta que debe; 'na' si no usa créditos */
 function estadoSaldo(c){
-  const s = saldoDe(c.id);
+  const s = saldoDe(c.id), modo = modoPago(c);
+  if(modo === 'sin') return 'na';
+  if(modo === 'cuenta') return s < 0 ? 'debe' : 'ok';
   if(s <= 0) return 'bad';
   if(s <= state.config.alertaViandas) return 'warn';
   return 'ok';
 }
-/* ¿Le alcanza el saldo para entregarle este turno? */
+/* ¿Le alcanza el saldo para entregarle este turno? Solo los prepagos necesitan créditos
+   (con la base en la v8; antes la base los pedía para todos). */
 function puedeEntregar(c, fecha, turno){
   const e = getEntrega(c.id, fecha);
   if(e && cuentaComoVianda(e[turno])) return true;
+  if(!usaCreditos(c) && state.versionBase >= 8) return true;
   return saldoDe(c.id) >= viandasTurno(c, fecha, turno);
 }
 /* Cuántos días de entrega programados cubre el saldo actual (desde hoy, sin contar lo ya entregado hoy). */
@@ -357,19 +368,27 @@ function diasQueCubre(c){
   return dias;
 }
 function textoSaldo(c){
-  const s = saldoDe(c.id);
+  const s = saldoDe(c.id), modo = modoPago(c);
+  if(modo === 'sin') return 'no usa créditos';
+  if(modo === 'cuenta') return s < 0 ? `debe ${plural(-s, 'vianda')}` : s > 0 ? `${plural(s, 'crédito')} a favor` : 'al día';
   if(s <= 0) return s < 0 ? `debe ${plural(-s, 'crédito')}` : 'sin créditos';
   return plural(s, 'crédito');
 }
+// solo los packs (prepagos) cuentan para los avisos de créditos
 function clientesPorVencer(){
   return clientesActivos().filter(c => estadoSaldo(c) === 'warn').sort((a, b) => saldoDe(a.id) - saldoDe(b.id));
 }
 function clientesSinSaldo(){
-  return clientesActivos().filter(c => viandasPorDia(c) > 0 && saldoDe(c.id) <= 0).sort((a, b) => saldoDe(a.id) - saldoDe(b.id));
+  return clientesActivos().filter(c => usaCreditos(c) && viandasPorDia(c) > 0 && saldoDe(c.id) <= 0).sort((a, b) => saldoDe(a.id) - saldoDe(b.id));
+}
+// sanatorios y empresas que deben viandas (se cobran a fin de semana)
+function clientesQueDeben(){
+  return state.clientes.filter(c => modoPago(c) === 'cuenta' && saldoDe(c.id) < 0).sort((a, b) => saldoDe(a.id) - saldoDe(b.id));
 }
 function mensajeRecordatorio(c){
   const s = saldoDe(c.id);
   const neg = state.config.nombre;
+  if(modoPago(c) === 'cuenta') return `Hola! Te escribimos de ${neg}: ${s < 0 ? `esta semana van ${plural(-s, 'vianda')} a cuenta` : 'tu cuenta está al día'}. ¡Gracias!`;
   if(s <= 0) return `Hola ${c.nombre.split(' ')[0]}! Te escribimos de ${neg}: ya no te quedan créditos (viandas pagas). Cuando quieras renovamos así seguís recibiendo. ¡Gracias!`;
   return `Hola ${c.nombre.split(' ')[0]}! Te escribimos de ${neg}: te ${s === 1 ? 'queda 1 crédito' : `quedan ${s} créditos`} (viandas pagas). ¿Querés que renovemos? ¡Gracias!`;
 }

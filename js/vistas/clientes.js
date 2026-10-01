@@ -24,7 +24,8 @@ function filtrarClientes(){
     if(clienteTipo !== 'todos' && c.tipo !== clienteTipo) return false;
     if(clienteEstado === 'activos' && !c.activo) return false;
     if(clienteEstado === 'pausados' && c.activo) return false;
-    if(clienteEstado === 'sin-saldo' && !(c.activo && saldoDe(c.id) <= 0)) return false;
+    if(clienteEstado === 'sin-saldo' && !(c.activo && usaCreditos(c) && saldoDe(c.id) <= 0)) return false;
+    if(clienteEstado === 'deben' && !(modoPago(c) === 'cuenta' && saldoDe(c.id) < 0)) return false;
     if(clienteEstado === 'por-vencer' && !(c.activo && estadoSaldo(c) === 'warn')) return false;
     if(q && !(c.nombre + ' ' + c.empresaNombre + ' ' + c.direccion + ' ' + c.telefono).toLowerCase().includes(q)) return false;
     return true;
@@ -38,7 +39,7 @@ function renderClientes(bar, main){
     <div class="seg" role="group" aria-label="Tipo">${['todos', ...TIPOS].map(t =>
       `<button class="chip" data-f="${t}" aria-pressed="${clienteTipo === t}">${t === 'todos' ? 'Todos' : TIPO_LABEL[t]}</button>`).join('')}</div>
     <select class="inp sm" id="c-estado" aria-label="Estado" style="width:auto">
-      ${[['activos', 'Activos'], ['sin-saldo', 'Sin saldo'], ['por-vencer', 'Por quedarse sin viandas'], ['pausados', 'Pausados'], ['todos', 'Todos']].map(([v, l]) =>
+      ${[['activos', 'Activos'], ['sin-saldo', 'Packs sin créditos'], ['por-vencer', 'Packs por quedarse sin créditos'], ['deben', 'Sanatorio / empresa: a cobrar'], ['pausados', 'Pausados'], ['todos', 'Todos']].map(([v, l]) =>
         `<option value="${v}" ${clienteEstado === v ? 'selected' : ''}>${l}</option>`).join('')}
     </select>
     ${esDueno() ? `<button class="btn primary" id="nuevo-cliente">${icon('plus', 14)} Nuevo cliente</button>` : ''}`;
@@ -79,12 +80,12 @@ function renderClientes(bar, main){
         <td>${daychipsHtml(c.dias)}</td>
         <td>${llevaTxt(c)}</td>
         <td>${k ? `<span style="display:inline-flex;gap:6px;align-items:center"><span class="dot" style="--c:${k.color}"></span>${esc(k.nombre)}</span>` : '<span class="muted">—</span>'}</td>
-        <td class="r"><span class="saldo ${c.activo ? estadoSaldo(c) : ''}">${esc(textoSaldo(c))}</span></td></tr>`;
+        <td class="r">${estadoSaldo(c) === 'na' ? '<span class="muted">—</span>' : `<span class="saldo ${c.activo ? estadoSaldo(c) : ''}">${esc(textoSaldo(c))}</span>`}</td></tr>`;
     }).join('');
     cards.innerHTML = `<div class="list" style="padding-bottom:96px">` + lista.map(c => `<div class="row click ${clienteAbierto === c.id ? 'opened' : ''}" data-id="${c.id}" tabindex="0">
         ${avatarHtml(c.nombre, 28)}
         <div class="t"><div class="n">${esc(c.nombre)}</div><div class="s">${esc(c.direccion || 'Sin dirección')} · ${llevaTxt(c)}</div></div>
-        <span class="saldo ${c.activo ? estadoSaldo(c) : ''}" style="font-size:13px;white-space:nowrap">${c.activo ? esc(textoSaldo(c)) : 'Pausado'}</span></div>`).join('') + '</div>';
+        ${!c.activo ? '<span class="saldo" style="font-size:13px">Pausado</span>' : estadoSaldo(c) === 'na' ? '' : `<span class="saldo ${estadoSaldo(c)}" style="font-size:13px;white-space:nowrap">${esc(textoSaldo(c))}</span>`}</div>`).join('') + '</div>';
     main.querySelectorAll('[data-id]').forEach(el => {
       el.addEventListener('click', () => abrirCliente(el.dataset.id));
       el.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); abrirCliente(el.dataset.id); } });
@@ -135,9 +136,11 @@ function dialogoPago(c, alTerminar, pago){
     titulo: corregir ? `Corregir pago · ${c.nombre}` : `Cargar pago · ${c.nombre}`,
     texto: corregir
       ? `Cambiá lo que se cargó mal, o borrá el pago. Ahora tiene <b>${esc(textoSaldo(c))}</b>; los créditos se recalculan solos.`
-      : `Tiene <b>${esc(textoSaldo(c))}</b>. Cada crédito es una vianda paga: se suman a los que tiene y cada vianda entregada descuenta uno.`,
+      : modoPago(c) === 'cuenta'
+        ? `${saldoDe(c.id) < 0 ? `Debe <b>${plural(-saldoDe(c.id), 'vianda')}</b>. ` : 'Está al día. '}El pago de la semana se descuenta de lo que debe (cada vianda es un crédito).`
+        : `Tiene <b>${esc(textoSaldo(c))}</b>. Cada crédito es una vianda paga: se suman a los que tiene y cada vianda entregada descuenta uno.`,
     html: `<div class="frow">
-        <div class="field"><label for="f-pago-viandas">Créditos (viandas pagas)${REQ}</label><input type="number" id="f-pago-viandas" step="1" value="${corregir ? pago.viandas : CREDITOS_POR_DEFECTO}" autofocus></div>
+        <div class="field"><label for="f-pago-viandas">Créditos (viandas pagas)${REQ}</label><input type="number" id="f-pago-viandas" step="1" value="${corregir ? pago.viandas : modoPago(c) === 'cuenta' ? Math.max(-saldoDe(c.id), 0) || '' : CREDITOS_POR_DEFECTO}" autofocus></div>
         <div class="field"><label for="f-pago-monto">Monto (opcional)</label><input type="number" id="f-pago-monto" min="0" step="1" placeholder="$" value="${corregir && pago.monto != null ? Number(pago.monto) : ''}"></div>
       </div>
       <div class="frow">
@@ -248,18 +251,27 @@ function abrirCliente(id){
   const d = c || { nombre: '', tipo: 'casual', empresaNombre: '', telefono: '', notas: '', direccion: '', referencia: '', lat: null, lng: null,
                    dias: [1, 2, 3, 4, 5], cantAlmuerzo: 1, cantCena: 0, cadeteId: null, activo: true };
   const sal = c ? (state.saldos[c.id] || { pagado: 0, consumido: 0, saldo: 0 }) : null;
-  const saldoHtml = c ? `<div class="cred-box">
+  const modo = c ? modoPago(c) : null, sv = c ? saldoDe(c.id) : 0;
+  // pack: créditos prepagos · sanatorio/empresa: cuenta que se cobra a fin de semana · casual: no usa créditos
+  const grande = modo === 'cuenta'
+    ? (sv < 0 ? `<b class="debe">${-sv}</b><span>viandas a cobrar · se abonan a fin de semana</span>` : `<b class="ok">${sv}</b><span>${sv ? 'créditos a favor' : 'al día: no debe nada'}</span>`)
+    : `<b class="${estadoSaldo(c || {})}">${sv}</b><span>créditos disponibles</span>`;
+  const saldoHtml = c && modo === 'sin' ? `<div class="cred-box modo-sin">
+        <p class="cred-nota">${icon('info', 14)} Cliente casual: paga cada pedido y no usa créditos.</p>
+        <div class="cred-pagos-h">Pagos cargados <span class="n" id="n-pagos"></span></div>
+        <div id="c-pagos"><div class="skel" style="width:50%"></div></div>
+      </div>` : c ? `<div class="cred-box modo-${modo}">
         <div class="cred-top">
-          <div class="cred-big"><b class="${estadoSaldo(c)}">${saldoDe(c.id)}</b><span>créditos disponibles</span></div>
+          <div class="cred-big">${grande}</div>
           <div class="cred-mini">
             <div><span>Pagó</span><b>${fmtNum(sal.pagado)}</b></div>
-            <div><span>Usó</span><b>${fmtNum(sal.consumido)}</b></div>
-            <div><span>Le alcanza</span><b>${plural(diasQueCubre(c), 'día')}</b></div>
+            <div><span>${modo === 'cuenta' ? 'Recibió' : 'Usó'}</span><b>${fmtNum(sal.consumido)}</b></div>
+            ${modo === 'prepago' ? `<div><span>Le alcanza</span><b>${plural(diasQueCubre(c), 'día')}</b></div>` : ''}
           </div>
         </div>
         <div class="pacts cred-acts">
-          <button class="btn lg primary" type="button" id="btn-pago">${icon('plus', 14)} Cargar pago</button>
-          <button class="btn lg" type="button" id="btn-ajustar">${icon('editar', 14)} Ajustar créditos</button>
+          <button class="btn lg primary" type="button" id="btn-pago">${icon('plus', 14)} ${modo === 'cuenta' ? 'Registrar pago' : 'Cargar pago'}</button>
+          <button class="btn lg" type="button" id="btn-ajustar">${icon('editar', 14)} ${modo === 'cuenta' ? 'Ajustar' : 'Ajustar créditos'}</button>
           ${waLink(c.telefono, '') ? `<a class="btn lg" href="${waLink(c.telefono, mensajeRecordatorio(c))}" target="_blank" rel="noopener" title="Avisar saldo por WhatsApp">${icon('wa', 14)} Avisar</a>` : ''}
           ${c.telefono ? `<a class="btn lg" href="${telLink(c.telefono)}" title="Llamar">${icon('tel', 14)}</a>` : ''}
         </div>
@@ -274,7 +286,7 @@ function abrirCliente(id){
     titulo: c ? `${icon('clientes', 14)} Cliente` : `${icon('plus', 14)} Nuevo cliente`,
     html: `
       ${c ? `<h2 class="ptitle">${esc(c.nombre)}</h2><p class="psub">${tipoTag(c)} ${c.activo ? '' : '<span class="tag plain">Pausado</span>'}</p>` : ''}
-      ${c ? `<div class="psec" style="margin-top:8px"><h3>Créditos y pagos</h3>${saldoHtml}</div>` : ''}
+      ${c ? `<div class="psec" style="margin-top:8px"><h3>${{ prepago: 'Créditos y pagos', cuenta: 'Cuenta corriente', sin: 'Pagos' }[modoPago(c)]}</h3>${saldoHtml}</div>` : ''}
 
       <div class="psec" style="${c ? '' : 'margin-top:0'}"><h3>Datos</h3>
         <div class="field"><label for="f-nombre">Nombre${REQ}</label><input type="text" id="f-nombre" value="${esc(d.nombre)}" placeholder="Nombre y apellido" ${c ? '' : 'autofocus'}></div>

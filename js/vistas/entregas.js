@@ -44,7 +44,7 @@ function entregaRowHtml(c, fecha, numero, columnas){
     ${numero != null ? `<span class="ord" style="--c:${k ? k.color : 'var(--text-3)'}">${numero}</span>` : ''}
     <div class="t" data-abrir="${c.id}" role="button" tabindex="0" title="Ver datos de entrega">
       <div class="n"><span>${esc(c.nombre)}</span>
-        ${est !== 'ok' && !esCadete() ? `<span class="tag ${est}">${esc(textoSaldo(c))}</span>` : est === 'warn' ? `<span class="tag warn">${esc(textoSaldo(c))}</span>` : ''}
+        ${est !== 'ok' && est !== 'na' && !esCadete() ? `<span class="tag ${est}">${esc(textoSaldo(c))}</span>` : est === 'warn' ? `<span class="tag warn">${esc(textoSaldo(c))}</span>` : ''}
         ${c.notas ? `<span class="tag plain" title="${esc(c.notas)}">Nota</span>` : ''}</div>
       <div class="s">${esc(sub)}</div>
       <div class="s menus">${turnos.map(t => (turnos.length > 1 ? TURNO_LABEL[t] + ': ' : '') + esc(textoVianda(c, fecha, t))).join(' · ')}</div>
@@ -67,7 +67,7 @@ function bindEntregaRows(cont, fecha, alCambiar, opciones = {}){
     grupo.classList.add('busy');
     try{
       await marcarEntrega(c, fecha, turno, nuevo);
-      const aviso = cuentaComoVianda(nuevo) && estadoSaldo(c) !== 'ok' && !esCadete()
+      const aviso = cuentaComoVianda(nuevo) && usaCreditos(c) && estadoSaldo(c) !== 'ok' && !esCadete()
         ? ` ${saldoDe(c.id) <= 0 ? 'Se quedó sin créditos.' : `Le quedan ${plural(saldoDe(c.id), 'crédito')}.`}` : '';
       if(opciones.deshacer){
         const que = { entregado: 'entregado', no_recibido: 'no lo recibió (cuenta como vianda)', saltado: 'salteada, no usa crédito' }[nuevo] || 'sin marcar';

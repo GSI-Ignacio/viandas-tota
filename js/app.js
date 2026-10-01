@@ -18,7 +18,8 @@ const TABS = [
   { id: 'mi-ruta',  label: 'Mi ruta',  icon: 'moto',     grupo: 'Operación', roles: ['cadete'], render: renderMiRuta },
   { id: 'rutas',    label: 'Rutas',    icon: 'rutas',    grupo: 'Operación', roles: ['dueno', 'ayudante'], render: renderRutas },
   { id: 'clientes', label: 'Clientes', icon: 'clientes', grupo: 'Gestión',   roles: ['dueno', 'ayudante'], render: renderClientes,
-    badge: () => { const n = clientesSinSaldo().length; return n ? { n, alert: true } : null; } },
+    // solo los packs de dietas sin créditos o por quedarse sin
+    badge: () => { const sin = clientesSinSaldo().length, n = sin + clientesPorVencer().length; return n ? { n, alert: sin > 0 } : null; } },
   { id: 'stock',    label: 'Stock',    icon: 'stock',    grupo: 'Gestión',   roles: ['dueno', 'ayudante'], render: renderStock,
     badge: () => { const n = productosBajos().length; return n ? { n, alert: true } : null; } },
   { id: 'estadisticas', label: 'Estadísticas', icon: 'grafico', grupo: 'Gestión', roles: ['dueno'], render: renderEstadisticas },
@@ -36,11 +37,13 @@ const tabsVisibles = () => TABS.filter(t => (!t.roles || t.roles.includes(state.
 const tabVisible = (id) => tabsVisibles().some(t => t.id === id);
 
 /* ---------- menú de arriba ---------- */
+// por ahora las pestañas no muestran números (los contadores siguen definidos en TABS)
+const MOSTRAR_CONTADORES = false;
 function renderMenu(){
   const nav = document.getElementById('topnav');
   const tabs = tabsVisibles();
   const btn = t => {
-    const b = t.badge ? t.badge() : null;
+    const b = MOSTRAR_CONTADORES && t.badge ? t.badge() : null;
     return `<button class="nav ${activeTab === t.id ? 'active' : ''}" data-tab="${t.id}" ${activeTab === t.id ? 'aria-current="page"' : ''} title="${esc(t.label)}">
       ${icon(t.icon || 'lista')}<span class="lbl">${esc(t.label)}</span>${b ? `<span class="cnt ${b.alert ? 'alert' : ''}">${b.n}</span>` : ''}</button>`;
   };

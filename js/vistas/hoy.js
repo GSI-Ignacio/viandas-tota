@@ -39,7 +39,7 @@ function filaTurnoHtml(c, fecha, turno){
   return `<div class="trow ${estado === 'entregado' ? 'done' : estado === 'saltado' ? 'skip' : ''}" data-row="${c.id}" data-turno-row="${turno}">
     <div class="t" data-abrir="${c.id}" role="button" tabindex="0" title="Ver cómo llegar y la comanda">
       <div class="n">${esc(c.nombre)}
-        ${est !== 'ok' ? `<span class="tag ${est}">${esc(textoSaldo(c))}</span>` : ''}
+        ${est === 'bad' || est === 'warn' || est === 'debe' ? `<span class="tag ${est}">${esc(textoSaldo(c))}</span>` : ''}
         ${c.notas ? `<span class="tag plain" title="${esc(c.notas)}">${esc(c.notas.length > 28 ? c.notas.slice(0, 26) + '…' : c.notas)}</span>` : ''}</div>
       <div class="que"><b>${viandasTurno(c, fecha, turno)}×</b> ${esc(nombreVianda)} <span class="muted">· ${esc(TIPO_LABEL[c.tipo] || '')}</span></div>
       <div class="s">${esc(dir)}</div>
@@ -64,6 +64,7 @@ function renderHoy(bar, main){
   const sinSaldo = clientesSinSaldo();
   const sinSaldoHoy = new Set(sinSaldo.filter(c => turnosDe(c, hoy).length).map(c => c.id));
   const porVencer = clientesPorVencer();
+  const deben = clientesQueDeben();
   const necesita = necesidadProductos(hoy, { soloPendiente: true });
   const negativos = productosNegativos();
   const faltanHoy = state.productos.filter(p => p.activo && p.stock >= 0 && necesita[p.id] > p.stock);
@@ -170,6 +171,12 @@ function renderHoy(bar, main){
           <div class="clist ${sinSaldo.length ? 'alert' : ''}">
             ${sinSaldo.map(c => irow(c, `<div class="s" style="color:var(--bad-ink);font-weight:500">${esc(textoSaldo(c))}${sinSaldoHoy.has(c.id) ? ' · recibe hoy' : ''}</div>`, accionesSaldo(c))).join('')}
             ${porVencer.map(c => { const d = diasQueCubre(c); return irow(c, `<div class="s" style="color:var(--warn-ink);font-weight:500">Quedan ${plural(saldoDe(c.id), 'crédito')}${d ? ` · alcanza ${plural(d, 'día')}` : ''}</div>`, accionesSaldo(c)); }).join('')}
+          </div></section>` : ''}
+
+        ${deben.length ? `<section class="tsec" id="sec-cobrar">
+          <h2>${icon('pago', 14)} A cobrar a fin de semana <span class="n">sanatorios y empresas</span></h2>
+          <div class="clist debe">
+            ${deben.map(c => irow(c, `<div class="s" style="color:var(--skip-ink);font-weight:500">Debe ${plural(-saldoDe(c.id), 'vianda')}</div>`, esDueno() ? `<button class="btn" data-pago="${c.id}" data-stop>${icon('pago', 13)} Pago</button>` : '')).join('')}
           </div></section>` : ''}
 
         ${negativos.length || faltanHoy.length || bajos.length ? `<section class="tsec">
