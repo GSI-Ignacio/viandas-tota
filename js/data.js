@@ -117,6 +117,9 @@ async function cargarPerfil(){
     if(/estado|column/i.test(chk.error.message)) throw new MigracionPendiente('v4');
     throw chk.error;
   }
+  // qué versión tiene la base (desde la v7): lo nuevo se muestra solo si la base ya lo soporta
+  const ver = await sb.rpc('version_base');
+  state.versionBase = ver.error ? 0 : Number(ver.data) || 0;
   const chk5 = await sb.from('carta_dia').select('fecha').limit(1);
   if(chk5.error){
     if(/relation|does not exist|PGRST205|schema cache/i.test(chk5.error.message + ' ' + (chk5.error.code || ''))) throw new MigracionPendiente('v5');
@@ -223,9 +226,11 @@ const getEntrega = (clienteId, fecha) => state.entregas[clave(clienteId, fecha)]
 const cantTurno = (c, turno) => turno === 'almuerzo' ? c.cantAlmuerzo : c.cantCena;
 const viandasPorDia = (c) => c.cantAlmuerzo + c.cantCena;
 
+// "no lo recibió" cuenta como vianda (usa crédito y stock); "saltado" no
+const cuentaComoVianda = (v) => v === 'entregado' || v === 'no_recibido';
 function consumoEntrega(e){
   if(!e) return 0;
-  return (e.almuerzo === 'entregado' ? (e.cantAlmuerzo ?? 1) : 0) + (e.cena === 'entregado' ? (e.cantCena ?? 1) : 0);
+  return (cuentaComoVianda(e.almuerzo) ? (e.cantAlmuerzo ?? 1) : 0) + (cuentaComoVianda(e.cena) ? (e.cantCena ?? 1) : 0);
 }
 function programadoEn(c, fecha){ return c.activo && c.dias.includes(diaSemana(fecha)) && viandasPorDia(c) > 0; }
 function tieneRegistro(c, fecha){ const e = getEntrega(c.id, fecha); return !!(e && (e.almuerzo || e.cena)); }
@@ -245,7 +250,7 @@ function recibeTurno(c, fecha, turno){
 /* Viandas de una entrega: lo ya entregado, o lo de su ficha. */
 function viandasTurno(c, fecha, turno){
   const e = getEntrega(c.id, fecha);
-  const snap = e && e[turno] === 'entregado' ? (turno === 'almuerzo' ? e.cantAlmuerzo : e.cantCena) : null;
+  const snap = e && cuentaComoVianda(e[turno]) ? (turno === 'almuerzo' ? e.cantAlmuerzo : e.cantCena) : null;
   if(snap != null) return snap;
   return Math.max(cantTurno(c, turno), 1);
 }
@@ -302,7 +307,7 @@ function clientesDelDia(fecha, incluirNoProgramados = false){
 }
 /* Resumen de un día, en viandas. */
 function resumenDia(fecha, lista){
-  let esperadas = 0, entregadas = 0, saltadas = 0;
+  let esperadas = 0, entregadas = 0, noRecibidas = 0, saltadas = 0;
   for(const c of (lista || state.clientes)){
     const e = getEntrega(c.id, fecha);
     for(const t of turnosDe(c, fecha)){
@@ -310,9 +315,13 @@ function resumenDia(fecha, lista){
       esperadas += v;
       if(e && e[t] === 'saltado') saltadas += v;
     }
-    if(e) entregadas += consumoEntrega(e);
+    if(e) for(const t of ['almuerzo', 'cena']){
+      const n = t === 'almuerzo' ? (e.cantAlmuerzo ?? 1) : (e.cantCena ?? 1);
+      if(e[t] === 'entregado') entregadas += n;
+      if(e[t] === 'no_recibido') noRecibidas += n;
+    }
   }
-  return { esperadas, entregadas, saltadas, pendientes: Math.max(esperadas - entregadas - saltadas, 0) };
+  return { esperadas, entregadas, noRecibidas, saltadas, pendientes: Math.max(esperadas - entregadas - noRecibidas - saltadas, 0) };
 }
 function turnoPendiente(c, fecha, turno){ const e = getEntrega(c.id, fecha); return !(e && e[turno]); }
 function clientePendiente(c, fecha){ return turnosDe(c, fecha).some(t => turnoPendiente(c, fecha, t)); }
@@ -328,7 +337,7 @@ function estadoSaldo(c){
 /* ¿Le alcanza el saldo para entregarle este turno? */
 function puedeEntregar(c, fecha, turno){
   const e = getEntrega(c.id, fecha);
-  if(e && e[turno] === 'entregado') return true;
+  if(e && cuentaComoVianda(e[turno])) return true;
   return saldoDe(c.id) >= viandasTurno(c, fecha, turno);
 }
 /* Cuántos días de entrega programados cubre el saldo actual (desde hoy, sin contar lo ya entregado hoy). */
@@ -483,7 +492,7 @@ const productosBajos = () => state.productos.filter(p => p.activo && (p.stock < 
 async function marcarEntrega(c, fecha, turno, valor){
   if(!puedeRegistrarEn(fecha)) throw new Error('Solo se pueden registrar entregas del día de hoy.');
   const e = getEntrega(c.id, fecha);
-  if(valor === 'entregado' && !puedeEntregar(c, fecha, turno)){
+  if(cuentaComoVianda(valor) && !puedeEntregar(c, fecha, turno)){
     throw new Error(`Sin créditos: a ${c.nombre} le ${saldoDe(c.id) === 1 ? 'queda 1 crédito' : `quedan ${plural(Math.max(saldoDe(c.id), 0), 'crédito')}`} y la comanda es de ${plural(viandasTurno(c, fecha, turno), 'vianda')}. Hay que cargar un pago antes de entregar.`);
   }
   const payload = {
@@ -639,6 +648,21 @@ async function registrarPago(c, { viandas, monto, nota, fecha }){
   const s = state.saldos[c.id] || (state.saldos[c.id] = { pagado: 0, consumido: 0, saldo: 0 });
   s.pagado += viandas; s.saldo += viandas;
   return data;
+}
+/* Corrige un pago ya cargado (créditos, monto, fecha o nota) o lo borra; los créditos del cliente se recalculan. */
+async function editarPago(p, { viandas, monto, nota, fecha }){
+  const { data, error } = await sb.from('pagos').update({
+    viandas, monto: monto === '' || monto == null ? null : Number(monto), nota: nota || '', fecha: fecha || p.fecha
+  }).eq('id', p.id).select();
+  if(error) throw error;
+  if(!data || !data.length) throw new Error('Solo el dueño puede corregir pagos');
+  await recargarSaldos();
+}
+async function borrarPago(p){
+  const { data, error } = await sb.from('pagos').delete().eq('id', p.id).select();
+  if(error) throw error;
+  if(!data || !data.length) throw new Error('Solo el dueño puede borrar pagos');
+  await recargarSaldos();
 }
 async function listarPagos(clienteId){
   const { data, error } = await sb.from('pagos').select('*').eq('cliente_id', clienteId).order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(40);

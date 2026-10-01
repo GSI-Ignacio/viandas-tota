@@ -32,13 +32,14 @@ function calcularEst(d, desde, hasta){
   const porDia = Object.fromEntries(dias.map(f => [f, { packs: 0, pedidos: 0 }]));
   const porCliente = {}, porMenu = {}, porTipo = {}, porProd = {};
   const cli = (id) => porCliente[id] || (porCliente[id] = { viandas: 0, plata: 0 });
-  let packs = 0, saltadas = 0, platos = 0, ventas = 0;
+  let packs = 0, saltadas = 0, noRecibidas = 0, platos = 0, ventas = 0;
   const pedidos = new Set(), cancelados = new Set();
   for(const r of d.entregas){
     const n = consumoEntrega(mapEntrega(r));
     packs += n; cli(r.cliente_id).viandas += n;
     if(porDia[r.fecha]) porDia[r.fecha].packs += n;
     saltadas += (r.almuerzo === 'saltado' ? 1 : 0) + (r.cena === 'saltado' ? 1 : 0);
+    noRecibidas += (r.almuerzo === 'no_recibido' ? (r.cant_almuerzo ?? 1) : 0) + (r.cena === 'no_recibido' ? (r.cant_cena ?? 1) : 0);
   }
   for(const r of d.comandas){
     const k = r.cliente_id + '|' + r.fecha;
@@ -65,7 +66,7 @@ function calcularEst(d, desde, hasta){
   const cobrado = d.pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
   const total = packs + platos;
   return { dias, porDia, porCliente, porMenu, porTipo, porProd, sem, total, packs, platos, ventas, creditos, cobrado,
-    ingresos: ventas + cobrado, pedidos: pedidos.size, cancelados: cancelados.size, saltadas,
+    ingresos: ventas + cobrado, pedidos: pedidos.size, cancelados: cancelados.size, saltadas, noRecibidas,
     activos: Object.values(porCliente).filter(v => v.viandas > 0).length, promedio: dias.length ? total / dias.length : 0 };
 }
 
@@ -173,7 +174,7 @@ function htmlEstadisticas(a, b, r){
       <div class="ec-head"><h3>Viandas por día</h3>
         <span class="ec-leg"><span><i class="pk"></i>Packs</span><span><i class="pd"></i>Pedidos</span></span>
         <span class="sp"></span>
-        <span class="muted">${a.saltadas ? `<span style="color:var(--bad-ink)">${plural(a.saltadas, 'vianda no se entregó', 'viandas no se entregaron')}</span> · ` : ''}${plural(a.pedidos, 'pedido entregado', 'pedidos entregados')}${a.cancelados ? ` · ${plural(a.cancelados, 'cancelado')}` : ''}</span></div>
+        <span class="muted">${a.noRecibidas ? `<span style="color:var(--warn-ink)">${a.noRecibidas} no ${a.noRecibidas === 1 ? 'la recibió' : 'las recibieron'} (cobradas)</span> · ` : ''}${a.saltadas ? `<span style="color:var(--text-3)">${plural(a.saltadas, 'vianda salteada', 'viandas salteadas')}</span> · ` : ''}${plural(a.pedidos, 'pedido entregado', 'pedidos entregados')}${a.cancelados ? ` · ${plural(a.cancelados, 'cancelado')}` : ''}</span></div>
       <div class="est-chart" data-chart>
         <div class="ec-grid"><span>${fmtNum(max)}</span><span>${fmtNum(Math.round(max / 2))}</span><span>0</span></div>
         <div class="ec-bars">${barras}</div>

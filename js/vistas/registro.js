@@ -6,7 +6,8 @@ let registroFiltro = { desde: sumarDias(todayStr(), -7), hasta: todayStr(), text
 
 function estadoChip(v){
   if(v === 'entregado') return '<span class="tag ok">Entregado</span>';
-  if(v === 'saltado') return '<span class="tag bad">No se entregó</span>';
+  if(v === 'no_recibido') return '<span class="tag warn">No lo recibió</span>';
+  if(v === 'saltado') return '<span class="tag plain">Salteado</span>';
   return '<span class="tag plain">Sin marcar</span>';
 }
 

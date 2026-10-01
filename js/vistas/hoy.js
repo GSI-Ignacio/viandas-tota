@@ -5,13 +5,16 @@
    Lo pendiente arriba con sus botones; lo ya registrado queda plegado.
    A la derecha lo que requiere atención: créditos, stock y próximos días.
 ============================================================= */
-/* Lo ya registrado va en una línea: estado, qué se entregó y un botón para volverlo a pendiente. */
-function filaHechaHtml({ ok, nombre, detalle, etiqueta, abrir, toggle }){
-  return `<div class="trow hecha ${ok ? 'done' : 'skip'}" ${abrir.fila}>
-    <span class="est ${ok ? 'ok' : 'bad'}" aria-hidden="true">${icon(ok ? 'check' : 'x', 13)}</span>
+/* Lo ya registrado va en una línea: estado, qué se entregó y un botón para volverlo a pendiente.
+   estado: 'ok' (entregado), 'nr' (no lo recibió: cuenta igual), 'skip' (salteado: ese día no recibe)
+   o 'bad' (pedido cancelado). */
+function filaHechaHtml({ estado, nombre, detalle, etiqueta, abrir, toggle }){
+  const ico = { ok: 'check', nr: 'x', skip: 'saltear', bad: 'x' }[estado], fila = { ok: 'done', nr: 'done nr', skip: 'skip', bad: 'skip cancel' }[estado];
+  return `<div class="trow hecha ${fila}" ${abrir.fila}>
+    <span class="est ${estado}" aria-hidden="true">${icon(ico, 13)}</span>
     <div class="t" ${abrir.attr} role="button" tabindex="0" title="${abrir.title}">
       <div class="n1"><b>${esc(nombre)}</b><span> · ${detalle}</span></div></div>
-    <span class="tag ${ok ? 'ok' : 'bad'}">${etiqueta}</span>
+    <span class="tag ${{ skip: 'plain', nr: 'warn' }[estado] || estado}">${etiqueta}</span>
     ${toggle}
   </div>`;
 }
@@ -22,15 +25,15 @@ function filaTurnoHtml(c, fecha, turno){
   const estado = e ? e[turno] : null;
   const editable = puedeRegistrarEn(fecha);
   const nombreVianda = menuPorId(c.menuAlmuerzoId) ? menuPorId(c.menuAlmuerzoId).nombre : 'vianda';
-  if(estado === 'entregado' || estado === 'saltado'){
+  if(estado === 'entregado' || estado === 'no_recibido' || estado === 'saltado'){
     const ok = estado === 'entregado';
-    return filaHechaHtml({ ok, nombre: c.nombre,
+    return filaHechaHtml({ estado: { entregado: 'ok', no_recibido: 'nr', saltado: 'skip' }[estado], nombre: c.nombre,
       detalle: `${viandasTurno(c, fecha, turno)}× ${esc(nombreVianda)} · ${esc(TIPO_LABEL[c.tipo] || '')}`,
-      etiqueta: ok ? 'Entregado' : 'No se entregó',
+      etiqueta: { entregado: 'Entregado', no_recibido: 'No lo recibió · usó crédito', saltado: 'Salteado · no usó crédito' }[estado],
       abrir: { fila: `data-row="${c.id}" data-turno-row="${turno}"`, attr: `data-abrir="${c.id}"`, title: 'Ver la ficha de la entrega' },
       toggle: editable ? `<div class="meal-toggle deshacer ${estado}" data-cliente="${c.id}" data-meal="${turno}">${botonDeshacer().replace('data-deshacer', `data-v="${estado}"`)}</div>` : '' });
   }
-  const bloqueado = estado !== 'entregado' && !puedeEntregar(c, fecha, turno);
+  const bloqueado = !cuentaComoVianda(estado) && !puedeEntregar(c, fecha, turno);
   const est = estadoSaldo(c);
   const dir = [c.direccion || 'Sin dirección cargada', c.referencia].filter(Boolean).join(' · ');
   return `<div class="trow ${estado === 'entregado' ? 'done' : estado === 'saltado' ? 'skip' : ''}" data-row="${c.id}" data-turno-row="${turno}">
@@ -45,12 +48,14 @@ function filaTurnoHtml(c, fecha, turno){
     <div class="meal-toggle mbtns lg ${estado || ''}" data-cliente="${c.id}" data-meal="${turno}" role="group" aria-label="${esc(TURNO_LABEL[turno])} de ${esc(c.nombre)}">
       <button class="mb si" data-v="entregado" aria-pressed="${estado === 'entregado'}" ${!editable || bloqueado ? 'disabled' : ''}
         title="${bloqueado ? 'Sin créditos: no se puede entregar' : 'Entregado'}" aria-label="Entregado">${icon('check', 16)}<span class="lbl">Entregado</span></button>
-      <button class="mb no" data-v="saltado" aria-pressed="${estado === 'saltado'}" ${!editable ? 'disabled' : ''} title="No se entregó" aria-label="No se entregó">${icon('x', 15)}<span class="lbl">No</span></button>
+${state.versionBase >= 7 ? `      <button class="mb nr" data-v="no_recibido" aria-pressed="${estado === 'no_recibido'}" ${!editable || bloqueado ? 'disabled' : ''}
+        title="${bloqueado ? 'Sin créditos' : 'No lo recibió: el cadete fue y no estaba. Cuenta como vianda (usa crédito y stock)'}" aria-label="No lo recibió">${icon('x', 15)}<span class="lbl">No recibió</span></button>` : ''}
+      <button class="mb no" data-v="saltado" aria-pressed="${estado === 'saltado'}" ${!editable ? 'disabled' : ''} title="Saltear hoy: no recibe la vianda y no usa crédito" aria-label="Saltear hoy">${icon('saltear', 15)}<span class="lbl">Saltear</span></button>
     </div>
   </div>`;
 }
 
-const hoyAbiertas = new Set();   // "Ya registradas" que quedaron abiertas: se respetan al actualizar
+const hoyPlegadas = new Set();   // "Ya registradas" que se plegaron a mano: se respetan al actualizar
 
 function renderHoy(bar, main){
   const hoy = todayStr();
@@ -85,35 +90,61 @@ function renderHoy(bar, main){
       + (esDueno() ? `<button class="btn" data-pago="${c.id}" data-stop>${icon('pago', 13)} Pago</button>` : '');
   };
 
-  // bloques por turno: pendientes arriba, lo ya registrado plegado
+  // cada bloque: resumen arriba, lo que falta entregar en su tarjeta y lo ya registrado en otra
+  const chipsHtml = (chips) => `<div class="echips">${chips.filter(x => x.siempre || x.n).map(x =>
+    `<span class="echip ${x.cls} ${x.n ? '' : 'cero'}"><i></i><b>${x.n}</b>${esc(x.label)}</span>`).join('')}</div>`;
+  const bloque = ({ titulo, id, attrs = '', chips, nPend, pendHtml, vacio, hechasTitulo, nHechas, hechasHtml, clave }) => `
+    <section class="tsec bloque-dia" style="margin-top:0;margin-bottom:26px" ${id ? `id="${id}"` : ''} ${attrs}>
+      <h2>${titulo}</h2>
+      ${chipsHtml(chips)}
+      <div class="clist lista-dia">
+        <div class="lhead pend"><i></i>Falta entregar <span class="n">${nPend}</span></div>
+        ${pendHtml || `<div class="calm">${icon('check')} ${vacio}</div>`}
+      </div>
+      ${nHechas ? `<details class="clist lista-dia hechas2" data-plegado="${clave}" ${hoyPlegadas.has(clave) ? '' : 'open'}>
+        <summary class="lhead">${icon('chevD', 12)} ${hechasTitulo} <span class="n">${nHechas}</span></summary>
+        ${hechasHtml}</details>` : ''}
+    </section>`;
+
   const bloques = ['almuerzo', 'cena'].map(t => {
     const lista = delDia.filter(c => turnosDe(c, hoy).includes(t));
     if(!lista.length) return '';
     const pend = lista.filter(c => turnoPendiente(c, hoy, t));
     const hechas = lista.filter(c => !turnoPendiente(c, hoy, t));
-    const nEnt = hechas.filter(c => (getEntrega(c.id, hoy) || {})[t] === 'entregado').length, nNo = hechas.length - nEnt;
-    const viandasPend = pend.reduce((s, c) => s + viandasTurno(c, hoy, t), 0);
-    return `<section class="tsec" style="margin-top:0;margin-bottom:22px" data-turno="${t}">
-      <h2>${t === 'almuerzo' ? `${icon('entregas', 15)} Viandas de packs y fijos` : `${icon('luna', 15)} Cena`}
-        <span class="n">${pend.length ? `${plural(viandasPend, 'vianda')} por entregar a ${plural(pend.length, 'cliente')}` : 'todo registrado'}</span></h2>
-      <div class="clist">
-        ${pend.length ? pend.map(c => filaTurnoHtml(c, hoy, t)).join('') : `<div class="calm">${icon('check')} No queda nada por entregar.</div>`}
-        ${hechas.length ? `<details class="hechas" data-plegado="${t}" ${!pend.length || hoyAbiertas.has(t) ? 'open' : ''}><summary>${icon('chevD', 12)} Ya registradas
-            <span class="cuenta">${[nEnt && `<span><i class="ok"></i>${plural(nEnt, 'entregada')}</span>`, nNo && `<span><i class="bad"></i>${nNo} no se ${nNo === 1 ? 'entregó' : 'entregaron'}</span>`].filter(Boolean).join('')}</span></summary>
-          ${hechas.map(c => filaTurnoHtml(c, hoy, t)).join('')}</details>` : ''}
-      </div></section>`;
+    const estH = (c) => (getEntrega(c.id, hoy) || {})[t];
+    const v = (cs) => cs.reduce((s, c) => s + viandasTurno(c, hoy, t), 0);
+    // primero lo entregado, después lo que no recibieron y al final lo salteado
+    const orden = { entregado: 0, no_recibido: 1, saltado: 2 };
+    hechas.sort((a, b) => orden[estH(a)] - orden[estH(b)] || a.nombre.localeCompare(b.nombre, 'es'));
+    return bloque({
+      titulo: t === 'almuerzo' ? `${icon('entregas', 15)} Viandas de packs y fijos` : `${icon('luna', 15)} Cena`,
+      attrs: `data-turno="${t}"`,
+      chips: [
+        { cls: 'pend', n: v(pend), label: 'por entregar', siempre: true },
+        { cls: 'ok', n: v(hechas.filter(c => estH(c) === 'entregado')), label: 'entregadas', siempre: true },
+        { cls: 'nr', n: v(hechas.filter(c => estH(c) === 'no_recibido')), label: 'no las recibieron', siempre: state.versionBase >= 7 },
+        { cls: 'skip', n: v(hechas.filter(c => estH(c) === 'saltado')), label: 'salteadas', siempre: true }
+      ],
+      nPend: plural(pend.length, 'cliente'), pendHtml: pend.map(c => filaTurnoHtml(c, hoy, t)).join(''), vacio: 'No queda nada por entregar.',
+      hechasTitulo: 'Ya registradas hoy', nHechas: hechas.length ? plural(hechas.length, 'cliente') : 0,
+      hechasHtml: hechas.map(c => filaTurnoHtml(c, hoy, t)).join(''), clave: t
+    });
   }).join('');
 
   // pedidos particulares (comandas): aparte de los packs
   const pedPend = pedidos.filter(p => p.estado === 'pendiente'), pedHechos = pedidos.filter(p => p.estado !== 'pendiente');
-  const bloquePedidos = pedidos.length ? `<section class="tsec" style="margin-top:0;margin-bottom:22px" id="hoy-pedidos">
-      <h2>${icon('comanda', 15)} Pedidos <span class="n">${pedPend.length ? `${plural(pedPend.length, 'pedido')} por entregar · ${plural(rp.viandasPendientes, 'plato')}` : 'todo registrado'}</span></h2>
-      <div class="clist">
-        ${pedPend.length ? pedPend.map(p => filaPedidoHtml(p, hoy)).join('') : `<div class="calm">${icon('check')} No quedan pedidos por entregar.</div>`}
-        ${pedHechos.length ? `<details class="hechas" data-plegado="pedidos" ${!pedPend.length || hoyAbiertas.has('pedidos') ? 'open' : ''}><summary>${icon('chevD', 12)} Ya registrados
-            <span class="cuenta">${cuentaPedidosHechos(pedHechos)}</span></summary>
-          ${pedHechos.map(p => filaPedidoHtml(p, hoy)).join('')}</details>` : ''}
-      </div></section>` : '';
+  pedHechos.sort((a, b) => (a.estado === 'entregada' ? 0 : 1) - (b.estado === 'entregada' ? 0 : 1));
+  const bloquePedidos = pedidos.length ? bloque({
+    titulo: `${icon('comanda', 15)} Pedidos`, id: 'hoy-pedidos',
+    chips: [
+      { cls: 'pend', n: pedPend.length, label: `por entregar${rp.viandasPendientes ? ` · ${plural(rp.viandasPendientes, 'plato')}` : ''}`, siempre: true },
+      { cls: 'ok', n: pedHechos.filter(p => p.estado === 'entregada').length, label: 'entregados', siempre: true },
+      { cls: 'bad', n: pedHechos.filter(p => p.estado === 'cancelada').length, label: 'cancelados' }
+    ],
+    nPend: plural(pedPend.length, 'pedido'), pendHtml: pedPend.map(p => filaPedidoHtml(p, hoy)).join(''), vacio: 'No quedan pedidos por entregar.',
+    hechasTitulo: 'Ya registrados hoy', nHechas: pedHechos.length ? plural(pedHechos.length, 'pedido') : 0,
+    hechasHtml: pedHechos.map(p => filaPedidoHtml(p, hoy)).join(''), clave: 'pedidos'
+  }) : '';
 
   main.innerHTML = `<div class="page">
     <h1 class="hello">${esc(saludo())}${nombre ? ', ' + esc(nombre.split(' ')[0]) : ''}</h1>
@@ -169,7 +200,7 @@ function renderHoy(bar, main){
   main.querySelectorAll('[data-pago]').forEach(b => b.addEventListener('click', () => dialogoPago(clientePorId(b.dataset.pago), refrescar)));
   main.querySelectorAll('.irow[data-cli]').forEach(row => row.addEventListener('click', () => { irA('clientes'); abrirCliente(row.dataset.cli); }));
   const nv = main.querySelector('#nueva-comanda-vacio'); if(nv) nv.addEventListener('click', () => abrirComanda(null, hoy, 'almuerzo'));
-  main.querySelectorAll('details[data-plegado]').forEach(d => d.addEventListener('toggle', () => { if(d.open) hoyAbiertas.add(d.dataset.plegado); else hoyAbiertas.delete(d.dataset.plegado); }));
+  main.querySelectorAll('details[data-plegado]').forEach(d => d.addEventListener('toggle', () => { if(d.open) hoyPlegadas.delete(d.dataset.plegado); else hoyPlegadas.add(d.dataset.plegado); }));
   bindEntregaRows(main.querySelector('#hoy-entregas'), hoy, refrescar, { deshacer: true });
   const hp = main.querySelector('#hoy-pedidos'); if(hp) bindPedidos(hp, hoy, refrescar);
 }

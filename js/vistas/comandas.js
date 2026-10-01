@@ -47,7 +47,7 @@ function filaPedidoHtml(ped, fecha){
   const dir = [c.direccion, c.referencia].filter(Boolean).join(' · ');
   if(ped.estado !== 'pendiente'){
     const ok = ped.estado === 'entregada';
-    return filaHechaHtml({ ok, nombre: c.nombre,
+    return filaHechaHtml({ estado: ok ? 'ok' : 'bad', nombre: c.nombre,
       detalle: ped.lineas.map(l => `${l.cantidad}× ${esc(textoLinea(l))}`).join(' · ') + (ped.total != null ? ` · ${fmtPlata(ped.total)}` : ''),
       etiqueta: ok ? 'Entregado' : 'Cancelado',
       abrir: { fila: `data-row-pedido="${c.id}"`, attr: `data-abrir-pedido="${c.id}"`, title: 'Ver el pedido' },

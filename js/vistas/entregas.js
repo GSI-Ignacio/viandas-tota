@@ -19,14 +19,15 @@ function mealToggleHtml(c, fecha, turno){
   const e = getEntrega(c.id, fecha);
   const estado = e ? e[turno] : null;
   const editable = puedeRegistrarEn(fecha);
-  const bloqueado = estado !== 'entregado' && !puedeEntregar(c, fecha, turno);
+  const bloqueado = !cuentaComoVianda(estado) && !puedeEntregar(c, fecha, turno);
   const cant = viandasTurno(c, fecha, turno);
   return `<div class="meal">
     <span class="ml">${esc(TURNO_CORTO[turno])}${cant > 1 ? ` <small>×${cant}</small>` : ''}</span>
     <div class="meal-toggle mbtns ${estado || ''}" data-cliente="${c.id}" data-meal="${turno}" role="group" aria-label="${esc(TURNO_LABEL[turno])} de ${esc(c.nombre)}">
       <button class="mb si" data-v="entregado" aria-pressed="${estado === 'entregado'}" ${!editable || bloqueado ? 'disabled' : ''}
         title="${bloqueado ? 'Sin créditos: no se puede entregar' : 'Entregado'}" aria-label="Entregado">${icon('check', 16)}</button>
-      <button class="mb no" data-v="saltado" aria-pressed="${estado === 'saltado'}" ${!editable ? 'disabled' : ''} title="No se entregó" aria-label="No se entregó">${icon('x', 15)}</button>
+${state.versionBase >= 7 ? `      <button class="mb nr" data-v="no_recibido" aria-pressed="${estado === 'no_recibido'}" ${!editable || bloqueado ? 'disabled' : ''} title="No lo recibió: cuenta como vianda" aria-label="No lo recibió">${icon('x', 15)}</button>` : ''}
+      <button class="mb no" data-v="saltado" aria-pressed="${estado === 'saltado'}" ${!editable ? 'disabled' : ''} title="Saltear: no recibe y no usa crédito" aria-label="Saltear">${icon('saltear', 15)}</button>
     </div></div>`;
 }
 
@@ -66,10 +67,10 @@ function bindEntregaRows(cont, fecha, alCambiar, opciones = {}){
     grupo.classList.add('busy');
     try{
       await marcarEntrega(c, fecha, turno, nuevo);
-      const aviso = nuevo === 'entregado' && estadoSaldo(c) !== 'ok' && !esCadete()
+      const aviso = cuentaComoVianda(nuevo) && estadoSaldo(c) !== 'ok' && !esCadete()
         ? ` ${saldoDe(c.id) <= 0 ? 'Se quedó sin créditos.' : `Le quedan ${plural(saldoDe(c.id), 'crédito')}.`}` : '';
       if(opciones.deshacer){
-        const que = nuevo === 'entregado' ? 'entregado' : nuevo === 'saltado' ? 'no se entregó' : 'sin marcar';
+        const que = { entregado: 'entregado', no_recibido: 'no lo recibió (cuenta como vianda)', saltado: 'salteada, no usa crédito' }[nuevo] || 'sin marcar';
         toast(`<b>${esc(c.nombre)}</b> · ${TURNO_LABEL[turno].toLowerCase()}: ${que}.${aviso}`, aviso ? 'info' : 'ok', null, {
           label: 'Deshacer',
           fn: async () => {
@@ -90,11 +91,13 @@ function bindEntregaRows(cont, fecha, alCambiar, opciones = {}){
 }
 
 function progresoHtml(r, { sinPendientes = false } = {}){
-  const tot = Math.max(r.esperadas, r.entregadas + r.saltadas, 1);
+  const nr = r.noRecibidas || 0;
+  const tot = Math.max(r.esperadas, r.entregadas + nr + r.saltadas, 1);
   return `<div class="meter" role="img" aria-label="${r.entregadas} de ${r.esperadas} viandas entregadas">
-      <i class="ok" style="width:${(r.entregadas / tot * 100).toFixed(1)}%"></i><i class="bad" style="width:${(r.saltadas / tot * 100).toFixed(1)}%"></i></div>
+      <i class="ok" style="width:${(r.entregadas / tot * 100).toFixed(1)}%"></i><i class="nr" style="width:${(nr / tot * 100).toFixed(1)}%"></i><i class="skip" style="width:${(r.saltadas / tot * 100).toFixed(1)}%"></i></div>
     <span class="pl"><b>${r.entregadas}</b> de ${r.esperadas} viandas entregadas</span>
-    ${r.saltadas ? `<span class="pl" style="color:var(--bad-ink)">${r.saltadas} no se entregaron</span>` : ''}
+    ${nr ? `<span class="pl" style="color:var(--warn-ink)">${nr} no ${nr === 1 ? 'la recibió' : 'las recibieron'}</span>` : ''}
+    ${r.saltadas ? `<span class="pl" style="color:var(--text-3)">${plural(r.saltadas, 'salteada')}</span>` : ''}
     ${sinPendientes ? '' : `<span class="pl">${r.pendientes} pendientes</span>`}`;
 }
 

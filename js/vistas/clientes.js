@@ -93,43 +93,93 @@ function renderClientes(bar, main){
   pintar();
 }
 
-/* ---------- diálogo para cargar un pago ---------- */
-function dialogoPago(c, alTerminar){
-  if(!c) return;
+/* ---------- ajustar créditos: se escribe cuántos tiene que tener y se carga la diferencia ---------- */
+function dialogoAjusteCreditos(c, alTerminar){
+  const actual = saldoDe(c.id);
   dialogo({
-    titulo: `Cargar pago · ${c.nombre}`,
-    texto: `Tiene <b>${esc(textoSaldo(c))}</b>. Cada crédito es una vianda paga: se suman a los que tiene y cada vianda entregada descuenta uno.`,
+    titulo: `Ajustar créditos · ${c.nombre}`,
+    texto: `Ahora tiene <b>${plural(actual, 'crédito')}</b>. Escribí cuántos tiene que tener: la diferencia queda anotada como un ajuste en sus pagos.`,
+    html: `<div class="field"><label for="f-aj-cant">Créditos que tiene que tener${REQ}</label>
+        <input type="number" id="f-aj-cant" step="1" value="${actual}" autofocus style="font-size:20px;height:48px;font-weight:600"></div>
+      <div class="aj-dif" id="f-aj-dif">Sin cambios.</div>
+      <div class="field" style="margin-top:12px"><label for="f-aj-nota">Motivo (opcional)</label><input type="text" id="f-aj-nota" placeholder="Me equivoqué al cargar, devolución…"></div>`,
+    botones: [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Guardar', clase: 'primary', domId: 'confirmar-ajuste' }],
+    onMount: (el) => {
+      const inp = el.querySelector('#f-aj-cant'), dif = el.querySelector('#f-aj-dif');
+      const pintar = () => {
+        const d = Math.trunc(Number(inp.value)) - actual;
+        dif.className = 'aj-dif ' + (d > 0 ? 'mas' : d < 0 ? 'menos' : '');
+        dif.innerHTML = inp.value === '' ? 'Escribí un número.' : !d ? 'Sin cambios.' : `Se ${d > 0 ? 'suman' : 'restan'} <b>${plural(Math.abs(d), 'crédito')}</b>: queda con ${plural(actual + d, 'crédito')}.`;
+      };
+      inp.addEventListener('input', pintar); inp.select && setTimeout(() => inp.select(), 40); pintar();
+      el._validar = () => inp.value === '' ? marcarFalta(inp, 'Escribí cuántos créditos tiene que tener.') : true;
+    }
+  }).then(async (r) => {
+    if(!r) return;
+    const d = Math.trunc(Number(r.el.querySelector('#f-aj-cant').value)) - actual;
+    if(!d) return;
+    try{
+      await registrarPago(c, { viandas: d, monto: null, nota: r.el.querySelector('#f-aj-nota').value.trim() || 'Ajuste de créditos', fecha: todayStr() });
+      toast(`Créditos ajustados: <b>${esc(c.nombre)}</b> tiene ${esc(textoSaldo(c))}.`);
+      renderMenu();
+      if(alTerminar) alTerminar();
+    }catch(e){ toastError('No se pudieron ajustar los créditos', e); }
+  });
+}
+
+/* ---------- diálogo para cargar un pago, o corregir uno ya cargado ---------- */
+function dialogoPago(c, alTerminar, pago){
+  if(!c) return;
+  const corregir = !!pago;
+  dialogo({
+    titulo: corregir ? `Corregir pago · ${c.nombre}` : `Cargar pago · ${c.nombre}`,
+    texto: corregir
+      ? `Cambiá lo que se cargó mal, o borrá el pago. Ahora tiene <b>${esc(textoSaldo(c))}</b>; los créditos se recalculan solos.`
+      : `Tiene <b>${esc(textoSaldo(c))}</b>. Cada crédito es una vianda paga: se suman a los que tiene y cada vianda entregada descuenta uno.`,
     html: `<div class="frow">
-        <div class="field"><label for="f-pago-viandas">Créditos (viandas pagas)${REQ}</label><input type="number" id="f-pago-viandas" step="1" value="${CREDITOS_POR_DEFECTO}" autofocus></div>
-        <div class="field"><label for="f-pago-monto">Monto (opcional)</label><input type="number" id="f-pago-monto" min="0" step="1" placeholder="$"></div>
+        <div class="field"><label for="f-pago-viandas">Créditos (viandas pagas)${REQ}</label><input type="number" id="f-pago-viandas" step="1" value="${corregir ? pago.viandas : CREDITOS_POR_DEFECTO}" autofocus></div>
+        <div class="field"><label for="f-pago-monto">Monto (opcional)</label><input type="number" id="f-pago-monto" min="0" step="1" placeholder="$" value="${corregir && pago.monto != null ? Number(pago.monto) : ''}"></div>
       </div>
       <div class="frow">
-        <div class="field"><label for="f-pago-fecha">Fecha</label><input type="date" id="f-pago-fecha" value="${todayStr()}"></div>
-        <div class="field"><label for="f-pago-nota">Nota (opcional)</label><input type="text" id="f-pago-nota" placeholder="Efectivo, transferencia…"></div>
+        <div class="field"><label for="f-pago-fecha">Fecha</label><input type="date" id="f-pago-fecha" value="${corregir ? pago.fecha : todayStr()}"></div>
+        <div class="field"><label for="f-pago-nota">Nota (opcional)</label><input type="text" id="f-pago-nota" placeholder="Efectivo, transferencia…" value="${corregir ? esc(pago.nota || '') : ''}"></div>
       </div>
-      <p class="muted" style="font-size:13px;margin:0">Para corregir un error, cargá un número negativo.</p>`,
-    botones: [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Guardar pago', clase: 'primary', domId: 'confirmar-pago' }],
+      ${corregir ? '' : '<p class="muted" style="font-size:13px;margin:0">¿Te equivocaste en un pago? En la ficha, en "Créditos y pagos", tocá <b>Editar</b> en ese pago, o usá <b>Ajustar créditos</b>.</p>'}`,
+    botones: corregir
+      ? [{ id: 'borrar', label: 'Borrar pago', clase: 'danger', domId: 'borrar-pago' }, { id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Guardar cambios', clase: 'primary', domId: 'confirmar-pago' }]
+      : [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Guardar pago', clase: 'primary', domId: 'confirmar-pago' }],
     onMount: (el) => {
-      el._validar = () => {
+      el._validar = (boton) => {
+        if(boton === 'borrar') return true;
         const v = Math.trunc(Number(el.querySelector('#f-pago-viandas').value));
-        if(!v) return marcarFalta(el.querySelector('#f-pago-viandas'), 'Poné cuántos créditos (viandas) pagó.');
+        if(!v) return marcarFalta(el.querySelector('#f-pago-viandas'), corregir ? 'Poné los créditos, o tocá Borrar pago.' : 'Poné cuántos créditos (viandas) pagó.');
         return true;
       };
     }
   }).then(async (r) => {
     if(!r) return;
     const el = r.el;
+    const datos = {
+      viandas: Math.trunc(Number(el.querySelector('#f-pago-viandas').value)),
+      monto: el.querySelector('#f-pago-monto').value,
+      fecha: el.querySelector('#f-pago-fecha').value || todayStr(),
+      nota: el.querySelector('#f-pago-nota').value.trim()
+    };
     try{
-      await registrarPago(c, {
-        viandas: Math.trunc(Number(el.querySelector('#f-pago-viandas').value)),
-        monto: el.querySelector('#f-pago-monto').value,
-        fecha: el.querySelector('#f-pago-fecha').value || todayStr(),
-        nota: el.querySelector('#f-pago-nota').value.trim()
-      });
-      toast(`Pago cargado. <b>${esc(c.nombre)}</b> tiene ${esc(textoSaldo(c))}.`);
+      if(r.boton === 'borrar'){
+        if(!(await confirmar('Borrar pago', `¿Borrar el pago de <b>${pago.viandas > 0 ? '+' : ''}${pago.viandas} créditos</b> del ${esc(formatFechaCorta(pago.fecha))}?`, { ok: 'Borrar pago', peligro: true }))) return;
+        await borrarPago(pago);
+        toast(`Pago borrado. <b>${esc(c.nombre)}</b> tiene ${esc(textoSaldo(c))}.`);
+      }else if(corregir){
+        await editarPago(pago, datos);
+        toast(`Pago corregido. <b>${esc(c.nombre)}</b> tiene ${esc(textoSaldo(c))}.`);
+      }else{
+        await registrarPago(c, datos);
+        toast(`Pago cargado. <b>${esc(c.nombre)}</b> tiene ${esc(textoSaldo(c))}.`);
+      }
       renderMenu();
       if(alTerminar) alTerminar();
-    }catch(e){ toastError('No se pudo cargar el pago', e); }
+    }catch(e){ toastError(corregir ? 'No se pudo corregir el pago' : 'No se pudo cargar el pago', e); }
   });
 }
 
@@ -197,15 +247,24 @@ function abrirCliente(id){
 
   const d = c || { nombre: '', tipo: 'casual', empresaNombre: '', telefono: '', notas: '', direccion: '', referencia: '', lat: null, lng: null,
                    dias: [1, 2, 3, 4, 5], cantAlmuerzo: 1, cantCena: 0, cadeteId: null, activo: true };
-  const saldoHtml = c ? `<div class="stats" style="margin-top:0">
-        <div class="stat2"><b class="${estadoSaldo(c)}">${saldoDe(c.id)}</b><span>créditos disponibles</span></div>
-        <div class="stat2"><b>${diasQueCubre(c)}</b><span>días de entrega que cubre</span></div>
-        <div class="stat2"><b>${state.saldos[c.id] ? state.saldos[c.id].consumido : 0}</b><span>entregadas en total</span></div>
-      </div>
-      <div class="pacts" style="border:0;padding:0;margin:10px 0 0">
-        <button class="btn lg primary" type="button" id="btn-pago">${icon('pago', 14)} Cargar pago</button>
-        ${waLink(c.telefono, '') ? `<a class="btn lg" href="${waLink(c.telefono, mensajeRecordatorio(c))}" target="_blank" rel="noopener">${icon('wa', 14)} Avisar saldo</a>` : ''}
-        ${c.telefono ? `<a class="btn lg" href="${telLink(c.telefono)}">${icon('tel', 14)} Llamar</a>` : ''}
+  const sal = c ? (state.saldos[c.id] || { pagado: 0, consumido: 0, saldo: 0 }) : null;
+  const saldoHtml = c ? `<div class="cred-box">
+        <div class="cred-top">
+          <div class="cred-big"><b class="${estadoSaldo(c)}">${saldoDe(c.id)}</b><span>créditos disponibles</span></div>
+          <div class="cred-mini">
+            <div><span>Pagó</span><b>${fmtNum(sal.pagado)}</b></div>
+            <div><span>Usó</span><b>${fmtNum(sal.consumido)}</b></div>
+            <div><span>Le alcanza</span><b>${plural(diasQueCubre(c), 'día')}</b></div>
+          </div>
+        </div>
+        <div class="pacts cred-acts">
+          <button class="btn lg primary" type="button" id="btn-pago">${icon('plus', 14)} Cargar pago</button>
+          <button class="btn lg" type="button" id="btn-ajustar">${icon('editar', 14)} Ajustar créditos</button>
+          ${waLink(c.telefono, '') ? `<a class="btn lg" href="${waLink(c.telefono, mensajeRecordatorio(c))}" target="_blank" rel="noopener" title="Avisar saldo por WhatsApp">${icon('wa', 14)} Avisar</a>` : ''}
+          ${c.telefono ? `<a class="btn lg" href="${telLink(c.telefono)}" title="Llamar">${icon('tel', 14)}</a>` : ''}
+        </div>
+        <div class="cred-pagos-h">Pagos cargados <span class="n" id="n-pagos"></span></div>
+        <div id="c-pagos"><div class="skel" style="width:50%"></div></div>
       </div>` : `<div class="frow">
         <div class="field"><label for="f-saldo-inicial">Créditos al alta</label><input type="number" id="f-saldo-inicial" min="0" step="1" value="${creditosAlAlta(d.tipo)}">
           <div class="help">Solo los packs de dietas arrancan con ${CREDITOS_POR_DEFECTO}. Casuales, empresas y sanatorios en 0: sus pedidos no usan créditos.</div></div>
@@ -215,7 +274,7 @@ function abrirCliente(id){
     titulo: c ? `${icon('clientes', 14)} Cliente` : `${icon('plus', 14)} Nuevo cliente`,
     html: `
       ${c ? `<h2 class="ptitle">${esc(c.nombre)}</h2><p class="psub">${tipoTag(c)} ${c.activo ? '' : '<span class="tag plain">Pausado</span>'}</p>` : ''}
-      ${c ? `<div class="psec" style="margin-top:8px"><h3>Créditos</h3>${saldoHtml}</div>` : ''}
+      ${c ? `<div class="psec" style="margin-top:8px"><h3>Créditos y pagos</h3>${saldoHtml}</div>` : ''}
 
       <div class="psec" style="${c ? '' : 'margin-top:0'}"><h3>Datos</h3>
         <div class="field"><label for="f-nombre">Nombre${REQ}</label><input type="text" id="f-nombre" value="${esc(d.nombre)}" placeholder="Nombre y apellido" ${c ? '' : 'autofocus'}></div>
@@ -245,12 +304,12 @@ function abrirCliente(id){
       </div>
 
       ${c ? '' : `<div class="psec"><h3>Créditos iniciales</h3>${saldoHtml}</div>`}
-      ${c ? `<div class="psec"><h3>Pagos <span class="n" id="n-pagos"></span></h3><div id="c-pagos"><div class="skel" style="width:50%"></div></div></div>
-      <div class="psec"><h3>Últimas entregas</h3><div id="c-entregas"><div class="skel" style="width:40%"></div></div></div>
+      ${c ? `      <div class="psec"><h3>Últimas entregas</h3><div id="c-entregas"><div class="skel" style="width:40%"></div></div></div>
       <div class="psec"><h3>Acciones</h3><div class="pacts" style="border:0;margin:0;padding:0">
-        <button class="btn lg" type="button" data-action="toggle-activo" data-id="${c.id}">${icon(c.activo ? 'pausa' : 'play', 14)} ${c.activo ? 'Pausar entregas' : 'Reactivar'}</button>
-        <button class="btn lg danger" type="button" data-action="eliminar" data-id="${c.id}">${icon('borrar', 14)} Eliminar cliente</button></div></div>` : ''}`,
-    pie: `<button class="btn lg" id="cancelar-modal">Cancelar</button><button class="btn lg primary" id="guardar-cliente">${c ? 'Guardar cambios' : 'Crear cliente'}</button>`,
+        <button class="btn lg" type="button" data-action="toggle-activo" data-id="${c.id}">${icon(c.activo ? 'pausa' : 'play', 14)} ${c.activo ? 'Pausar entregas' : 'Reactivar'}</button></div></div>` : ''}`,
+    // eliminar va al pie, a la vista, como en los pedidos
+    pie: `${c ? `<button class="btn lg danger" type="button" data-action="eliminar" data-id="${c.id}">${icon('borrar', 14)} Eliminar cliente</button><span class="sp"></span>` : ''}
+      <button class="btn lg" id="cancelar-modal">Cancelar</button><button class="btn lg primary" id="guardar-cliente">${c ? 'Guardar cambios' : 'Crear cliente'}</button>`,
     onClose: () => { clienteAbierto = null; document.querySelectorAll('[data-id].opened').forEach(x => x.classList.remove('opened')); },
     onMount: (el) => {
       const tipoSel = el.querySelector('#f-tipo');
@@ -265,6 +324,8 @@ function abrirCliente(id){
       el.querySelector('#cancelar-modal').addEventListener('click', () => cerrarPanel());
       const bp = el.querySelector('#btn-pago');
       if(bp) bp.addEventListener('click', () => dialogoPago(c, () => { refrescar(); abrirCliente(c.id); }));
+      const ba = el.querySelector('#btn-ajustar');
+      if(ba) ba.addEventListener('click', () => dialogoAjusteCreditos(c, () => { refrescar(); abrirCliente(c.id); }));
       el.querySelector('#guardar-cliente').addEventListener('click', async (ev) => {
         const nombre = el.querySelector('#f-nombre').value.trim();
         if(!nombre){ marcarFalta(el.querySelector('#f-nombre'), 'Poné un nombre para el cliente.'); return; }
@@ -298,7 +359,7 @@ function abrirCliente(id){
         catch(e){ toastError('No se pudo cambiar el estado', e); }
       });
       el.querySelector('[data-action="eliminar"]').addEventListener('click', async () => {
-        const ok = await confirmar('Eliminar cliente', `¿Eliminar a <b>${esc(c.nombre)}</b>? También se borran sus entregas y pagos. El registro de entregas conserva el historial.`, { ok: 'Eliminar', peligro: true });
+        const ok = await confirmar('Eliminar cliente', `¿Eliminar a <b>${esc(c.nombre)}</b>? También se borran sus entregas, pagos y pedidos, y no se puede deshacer. El registro de entregas conserva el historial.<br><br>Si solo deja de recibir por un tiempo, mejor usá <b>Pausar entregas</b>.`, { ok: 'Eliminar', peligro: true });
         if(!ok) return;
         try{ await eliminarCliente(c); toast('Cliente eliminado.'); cerrarPanel(); refrescar(); }
         catch(e){ toastError('No se pudo eliminar', e); }
@@ -314,14 +375,27 @@ async function cargarHistorialCliente(el, c){
     const cp = el.querySelector('#c-pagos');
     if(cp){
       el.querySelector('#n-pagos').textContent = pagos.length || '';
-      cp.innerHTML = pagos.length ? pagos.map(p => `<div class="hist"><span class="w">${formatFechaCorta(p.fecha)}</span>
-          <span class="t">${esc(p.nota || 'Pago')}${p.monto != null ? ' · ' + fmtPlata(p.monto) : ''}</span>
-          <span class="v ${p.viandas < 0 ? 'bad' : 'ok'}">${p.viandas > 0 ? '+' : ''}${p.viandas}</span></div>`).join('')
+      const corrige = esDueno();   // el dueño corrige o borra cada pago desde acá
+      const listo = () => { refrescar(); abrirCliente(c.id); };
+      cp.innerHTML = pagos.length ? `<div class="pagos-lista">${pagos.map(p => `<div class="pago-row">
+          <span class="v ${p.viandas < 0 ? 'bad' : 'ok'}">${p.viandas > 0 ? '+' : ''}${p.viandas}</span>
+          <div class="t"><div class="n">${esc(p.nota || 'Pago')}</div><div class="s">${formatFechaCorta(p.fecha)}${p.monto != null ? ` · <b>${fmtPlata(p.monto)}</b>` : ''}</div></div>
+          ${corrige ? `<div class="acts"><button class="btn" type="button" data-pago-editar="${p.id}" title="Corregir este pago">${icon('editar', 13)} Editar</button>
+            <button class="btn quiet danger" type="button" data-pago-borrar="${p.id}" title="Borrar este pago" aria-label="Borrar este pago">${icon('borrar', 13)}</button></div>` : ''}</div>`).join('')}</div>`
         : '<div class="muted" style="font-size:13px">Todavía no tiene pagos cargados.</div>';
+      if(corrige){
+        cp.querySelectorAll('[data-pago-editar]').forEach(b => b.addEventListener('click', () => dialogoPago(c, listo, pagos.find(x => x.id === b.dataset.pagoEditar))));
+        cp.querySelectorAll('[data-pago-borrar]').forEach(b => b.addEventListener('click', async () => {
+          const p = pagos.find(x => x.id === b.dataset.pagoBorrar);
+          if(!(await confirmar('Borrar pago', `¿Borrar el pago de <b>${p.viandas > 0 ? '+' : ''}${p.viandas} créditos</b> del ${esc(formatFechaCorta(p.fecha))}?`, { ok: 'Borrar pago', peligro: true }))) return;
+          try{ await borrarPago(p); toast(`Pago borrado. <b>${esc(c.nombre)}</b> tiene ${esc(textoSaldo(c))}.`); renderMenu(); listo(); }
+          catch(e){ toastError('No se pudo borrar el pago', e); }
+        }));
+      }
     }
     const ce = el.querySelector('#c-entregas');
     if(ce){
-      const est = v => v === 'entregado' ? '<span class="tag ok">Entregado</span>' : v === 'saltado' ? '<span class="tag bad">No se entregó</span>' : '';
+      const est = v => v === 'entregado' ? '<span class="tag ok">Entregado</span>' : v === 'no_recibido' ? '<span class="tag warn">No lo recibió</span>' : v === 'saltado' ? '<span class="tag plain">Salteado</span>' : '';
       ce.innerHTML = entregas.filter(e => e.almuerzo || e.cena).length ? entregas.filter(e => e.almuerzo || e.cena).map(e => `<div class="hist">
           <span class="w">${formatFechaCorta(e.fecha)}</span>
           <span class="t">${e.almuerzo ? `Almuerzo ${est(e.almuerzo)}` : ''} ${e.cena ? `Cena ${est(e.cena)}` : ''}</span>

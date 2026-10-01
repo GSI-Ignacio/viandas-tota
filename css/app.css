@@ -274,7 +274,7 @@ svg{display:block;flex:none}
 .meter{height:8px;border-radius:999px;overflow:hidden;display:flex;gap:2px;
   background:repeating-linear-gradient(-45deg,transparent 0 4px,var(--hatch) 4px 8px),var(--hover);box-shadow:inset 0 0 0 1px var(--line)}
 .meter i{display:block;height:100%}
-.meter i.ok{background:var(--ok)} .meter i.bad{background:var(--bad)}
+.meter i.ok{background:var(--ok)} .meter i.bad{background:var(--bad)} .meter i.skip{background:var(--text-4)}
 
 /* ---------- listas ---------- */
 .list{padding:0 0 96px}
@@ -378,14 +378,15 @@ svg{display:block;flex:none}
 .mb + .mb{border-left:1px solid var(--line-2)}
 .mb:hover:not(:disabled){background:var(--hover);color:var(--text)}
 .mb.si:hover:not(:disabled){background:var(--ok-wash);color:var(--ok-ink)}
-.mb.no:hover:not(:disabled){background:var(--bad-wash);color:var(--bad-ink)}
+.ped-toggle .mb.no:hover:not(:disabled){background:var(--bad-wash);color:var(--bad-ink)}
+.meal-toggle .mb.no:hover:not(:disabled){background:var(--active);color:var(--text)}
 .meal-toggle.entregado .mb.si:hover:not(:disabled){background:color-mix(in oklch,var(--ok) 85%,black)}
-.meal-toggle.saltado .mb.no:hover:not(:disabled){background:color-mix(in oklch,var(--bad) 85%,black)}
+.meal-toggle.saltado .mb.no:hover:not(:disabled){background:color-mix(in srgb,var(--text) 26%,transparent)}
 .mbtns.lg .mb{width:auto;min-width:48px;height:40px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600}
 .mb:disabled{opacity:.35}
 .meal-toggle.entregado .mb.si{background:var(--ok);color:#fff}
-.meal-toggle.saltado .mb.no{background:var(--bad);color:#fff}
-:root[data-theme="dark"] .meal-toggle.entregado .mb.si,:root[data-theme="dark"] .meal-toggle.saltado .mb.no{color:#150d08}
+.meal-toggle.saltado .mb.no{background:color-mix(in srgb,var(--text) 18%,transparent);color:var(--text)}
+:root[data-theme="dark"] .meal-toggle.entregado .mb.si{color:#150d08}
 .meal-toggle.busy,.ped-toggle.busy{opacity:.6;pointer-events:none}
 .ped-toggle.entregada .mb.si{background:var(--ok);color:#fff}
 .ped-toggle.cancelada .mb.no{background:var(--bad);color:#fff}
@@ -463,6 +464,33 @@ svg{display:block;flex:none}
 .hist .w{color:var(--text-3);white-space:nowrap;font-variant-numeric:tabular-nums;width:74px;flex:none}
 .hist .t{flex:1;min-width:0;color:var(--text-2);overflow:hidden;text-overflow:ellipsis}
 .hist .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* ficha: créditos y pagos juntos */
+.cred-box{border:1px solid var(--line);border-radius:var(--r-card);background:var(--panel-2);padding:18px 18px 14px}
+.cred-top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px 22px;flex-wrap:wrap}
+.cred-big b{display:block;font-size:46px;font-weight:600;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums}
+.cred-big b.ok{color:var(--ok-ink)} .cred-big b.warn{color:var(--warn-ink)} .cred-big b.bad{color:var(--bad-ink)}
+.cred-big span{display:block;font-size:13px;color:var(--text-3);margin-top:6px}
+.cred-mini{display:flex;gap:18px}
+.cred-mini span{display:block;font-size:12px;color:var(--text-4)}
+.cred-mini b{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cred-acts{border:0!important;padding:0!important;margin:16px 0 0!important}
+.cred-pagos-h{margin:18px 0 8px;font:600 11px/1.2 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--text-4);display:flex;gap:8px;align-items:baseline}
+.cred-pagos-h .n{font:500 12px/1 var(--font);letter-spacing:0;text-transform:none}
+.pagos-lista{display:flex;flex-direction:column;gap:6px}
+.pago-row{display:flex;align-items:center;gap:12px;padding:8px 8px 8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.pago-row .v{min-width:44px;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.pago-row .v.ok{color:var(--ok-ink)} .pago-row .v.bad{color:var(--bad-ink)}
+.pago-row .t{flex:1;min-width:0}
+.pago-row .t .n{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pago-row .t .s{font-size:12px;color:var(--text-4)}
+.pago-row .acts{display:flex;gap:4px;flex:none}
+.aj-dif{padding:10px 12px;border-radius:10px;background:var(--hover);font-size:14px;color:var(--text-3)}
+.aj-dif.mas{background:var(--ok-wash);color:var(--ok-ink)} .aj-dif.menos{background:var(--bad-wash);color:var(--bad-ink)}
+.hist.click{cursor:pointer}
+.hist .ed{color:var(--text-4);opacity:0;transition:opacity var(--t-fast) ease}
+.hist.click:hover .ed,.hist.click:focus-visible .ed{opacity:1}
+@media (hover:none){ .hist .ed{opacity:1} }
+.sheet .foot .btn.danger{margin-right:auto}
 .hist .v.ok{color:var(--ok-ink)} .hist .v.bad{color:var(--bad-ink)}
 .minimap{height:220px;border-radius:14px;border:1px solid var(--line);overflow:hidden;margin-top:10px;background:var(--panel-2)}
 .geores{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:8px}
@@ -643,13 +671,43 @@ details.hechas > summary,.hechas-sep{font:600 11px/1.2 var(--mono)!important;let
 .trow.hecha .t{cursor:pointer}
 .trow.hecha .n1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px;color:var(--text-3)}
 .trow.hecha .n1 b{font-weight:500;color:var(--text-2)}
-.trow.hecha.skip .n1 b{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 55%,transparent)}
+.trow.hecha.cancel .n1 b{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 55%,transparent)}
 .est{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;flex:none}
 .est.ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok-ink)}
 .est.bad{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad-ink)}
+.est.skip{background:var(--active);color:var(--text-3)}
+.est.nr{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn-ink)}
+.cuenta i.nr,.meter i.nr{background:var(--warn)}
+.mb.nr:hover:not(:disabled){background:var(--warn-wash);color:var(--warn-ink)}
+.meal-toggle.no_recibido .mb.nr{background:var(--warn);color:#fff}
+:root[data-theme="dark"] .meal-toggle.no_recibido .mb.nr{color:#1E0F05}
+.cuenta i.skip{background:var(--text-4)}
 .deshacer{display:flex;flex:none}
 .deshacer .mb{width:auto;height:30px;padding:0 10px;display:inline-flex;align-items:center;gap:6px;border-radius:8px;font-size:13px;font-weight:500;color:var(--text-3)}
 .deshacer .mb:hover:not(:disabled){background:var(--active);color:var(--text)}
+/* Hoy: resumen del día, lo que falta entregar y lo ya registrado, en tarjetas separadas */
+.echips{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 12px}
+.echip{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 13px 0 11px;border-radius:999px;border:1px solid var(--line);
+  background:var(--panel-2);font-size:13px;color:var(--text-3);white-space:nowrap}
+.echip b{font-size:15px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.echip i{width:8px;height:8px;border-radius:50%;background:var(--text-4)}
+.echip.pend{border-color:var(--warn-line);background:var(--warn-wash);color:var(--warn-ink)} .echip.pend i{background:var(--accent)} .echip.pend b{color:var(--warn-ink)}
+.echip.ok i{background:var(--ok)} .echip.nr i{background:var(--warn)} .echip.bad i{background:var(--bad)}
+.echip.cero{opacity:.55}
+.echip.pend.cero{border-color:var(--line);background:var(--panel-2);color:var(--text-3)} .echip.pend.cero b{color:var(--text)}
+.lista-dia + .lista-dia{margin-top:12px}
+.lhead{display:flex;align-items:center;gap:8px;padding:11px 18px;border-bottom:1px solid var(--line);background:var(--hover);
+  font:600 11px/1.2 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--text-3)}
+.lhead .n{font:500 12px/1 var(--font);letter-spacing:0;text-transform:none;color:var(--text-4)}
+.lhead.pend{color:var(--warn-ink)}
+.lhead.pend i{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.lhead + .trow{border-top:0}
+details.hechas2 > summary{list-style:none;cursor:pointer}
+details.hechas2 > summary::-webkit-details-marker{display:none}
+details.hechas2 > summary:hover{color:var(--text)}
+details.hechas2 > summary svg{transition:transform var(--t-fast) linear;transform:rotate(-90deg)}
+details.hechas2[open] > summary svg{transform:none}
+details.hechas2:not([open]) > summary{border-bottom:0}
 .flist{display:flex;flex-direction:column}
 /* menú del día */
 .md-guarn{padding:10px 14px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:7px;font-size:13px}

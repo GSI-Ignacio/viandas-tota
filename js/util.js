@@ -97,7 +97,8 @@ const ICON_PATHS = {
   comanda: '<path d="M4 1.8h8v12.4l-1.6-1-1.2 1-1.2-1-1.2 1-1.2-1-1.6 1z"/><path d="M6 5h4M6 7.5h4M6 10h2.5"/>',
   menu: '<path d="M3 9.5a5 5 0 0 1 10 0z"/><path d="M1.8 11.5h12.4M8 3v1.5"/>',
   deshacer: '<path d="M5.5 3.5 2.8 6.2l2.7 2.7"/><path d="M3 6.2h6.3a3.7 3.7 0 0 1 0 7.4H7"/>',
-  grafico: '<path d="M2 13.5h12"/><path d="M4 11V8M7 11V4.5M10 11V6.5M13 11V9"/>'
+  grafico: '<path d="M2 13.5h12"/><path d="M4 11V8M7 11V4.5M10 11V6.5M13 11V9"/>',
+  saltear: '<path d="M3.5 3.8 9.5 8l-6 4.2z"/><path d="M12.2 3.8v8.4"/>'
 };
 function icon(name, size = 16, cls = ''){
   return `<svg class="${cls}" viewBox="0 0 16 16" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
@@ -234,7 +235,7 @@ function dialogo({ titulo, texto = '', html = '', botones = [{ id:'ok', label:'A
     const prev = document.activeElement;
     const fin = (v) => { quitarCapa(el); el.remove(); scrim.remove(); if(prev && prev.isConnected) prev.focus({ preventScroll: true }); resolve(v); };
     el.querySelectorAll('[data-b]').forEach(b => b.addEventListener('click', () => {
-      if(b.dataset.b !== 'cancelar' && el._validar && !el._validar()) return;
+      if(b.dataset.b !== 'cancelar' && el._validar && !el._validar(b.dataset.b)) return;
       fin(b.dataset.b === 'cancelar' ? null : { boton: b.dataset.b, el });
     }));
     scrim.addEventListener('click', () => fin(null));
