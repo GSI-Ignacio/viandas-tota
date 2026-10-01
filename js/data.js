@@ -2,7 +2,7 @@
    DATOS: estado en memoria, carga desde Supabase, reglas del negocio
    (créditos, programación por día, comandas y menús, rutas, demanda de
    productos) y escrituras.
-   Los permisos reales los aplica la base (migracion-v2.sql y v3); acá
+   Los permisos reales los aplica la base (actualizar-base.sql); acá
    solo se esconden las acciones que el rol no puede hacer.
 ============================================================= */
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -27,6 +27,8 @@ const state = {
 };
 
 class MigracionPendiente extends Error {}
+/* Versión de la base que espera esta app (la última de actualizar-base.sql). */
+const VERSION_BASE_APP = 10;
 
 /* ---------- roles ---------- */
 const esDueno = () => state.perfil.rol === 'dueno';
@@ -336,7 +338,7 @@ const menusDisponibles = () => state.menus.filter(menuDisponible);
 
 /* Precio de un plato para un cliente: su precio propio (sanatorio, empresas) o el de la carta. */
 function precioPara(c, menuId){
-  if(c && c.precioVianda != null) return c.precioVianda;
+  if(c && c.tipo !== 'casual' && c.precioVianda != null) return c.precioVianda;
   const m = menuPorId(menuId);
   return m && m.precio != null ? m.precio : null;
 }

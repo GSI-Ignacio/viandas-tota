@@ -105,7 +105,7 @@ function dialogoMiembro(){
       toast(`<b>${esc(m.email)}</b> ya es parte del negocio como ${ROL_LABEL[m.rol].toLowerCase()}. Si tenía datos propios, ya están acá; que vuelva a entrar a la app.`);
       renderMenu(); refrescar();
     }catch(e){
-      if(/Rol inválido|propio negocio cargado/i.test(e.message || '')) toast('Para sumar usuarios dueños o cuentas con datos propios, primero corré <b>migracion-v6.sql</b> en Supabase.', 'err', 9000);
+      if(/Rol inválido|propio negocio cargado/i.test(e.message || '')) toast('Para sumar usuarios dueños o cuentas con datos propios, primero corré <b>actualizar-base.sql</b> en Supabase.', 'err', 9000);
       else toastError('No se pudo dar acceso', e);
     }
   });

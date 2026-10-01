@@ -285,13 +285,16 @@ async function bootApp(session){
     const migrar = e instanceof MigracionPendiente;
     document.getElementById('main').innerHTML = `<div class="stub"><div class="ico">${icon(migrar ? 'ajustes' : 'alerta', 20)}</div>
       <h2>${migrar ? 'Falta actualizar la base de datos' : 'No se pudieron cargar los datos'}</h2>
-      <p>${migrar ? `Esta versión necesita que corras <code>migracion-${esc(e.message)}.sql</code>${e.message !== 'v5' ? ' (y después las siguientes)' : ''} una vez en Supabase → SQL Editor. Conserva todos tus datos.` : esc(traducirError(e.message || String(e)))}</p>
+      <p>${migrar ? `Esta versión necesita que corras ${e.message === 'v5' ? '' : `<code>migraciones/migracion-${esc(e.message)}.sql</code> (y las siguientes hasta la v4) y después `}<code>actualizar-base.sql</code> en Supabase → SQL Editor. Conserva todos tus datos.` : esc(traducirError(e.message || String(e)))}</p>
       <button class="btn lg" id="btn-reintentar">Reintentar</button> <button class="btn lg quiet" id="btn-salir2">Salir</button></div>`;
     document.getElementById('btn-reintentar').addEventListener('click', () => { arrancadoPara = null; bootApp(session); });
     document.getElementById('btn-salir2').addEventListener('click', () => sb.auth.signOut());
     return;
   }
   mostrar('app-screen');
+  // la base quedó atrás de la app: algunas funciones no aparecen hasta correr actualizar-base.sql
+  if(esDueno() && state.versionBase < VERSION_BASE_APP)
+    toast('Falta actualizar la base de datos: corré <b>actualizar-base.sql</b> en Supabase → SQL Editor. Hasta entonces faltan algunas funciones.', 'err', 15000);
   const pedido = location.hash.slice(1);
   activeTab = tabsVisibles().some(t => t.id === pedido) ? pedido : tabsVisibles()[0].id;
   render();

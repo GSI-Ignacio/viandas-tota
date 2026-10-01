@@ -13,7 +13,10 @@ const CREDITOS_POR_DEFECTO = 10;   // lo que se propone al cargar un pago y al d
 const creditosAlAlta = (tipo) => tipo === 'pack' ? CREDITOS_POR_DEFECTO : 0;
 function tipoTag(c){ return `<span class="tag ${c.tipo === 'empresa' ? 'pine' : c.tipo === 'pack' ? 'warn' : c.tipo === 'sanatorio' ? 'ok' : 'plain'}">${TIPO_LABEL[c.tipo] || 'Casual'}</span>`; }
 function daychipsHtml(dias){ return `<span class="daychips" aria-label="Días: ${dias.map(d => DIAS_LARGOS[d - 1]).join(', ')}">${DIAS_CORTOS.map((l, i) => `<i class="${dias.includes(i + 1) ? 'on' : ''}">${l}</i>`).join('')}</span>`; }
+// días que se proponen al dar de alta: solo los packs reciben fijo; casuales, empresas y sanatorios piden cuando quieren
+const diasAlAlta = (tipo) => tipo === 'pack' ? [1, 2, 3, 4, 5] : [];
 function llevaTxt(c){
+  if(c.tipo === 'casual' && !c.dias.length) return '—';
   const n = viandasPorDia(c);
   return n ? `${plural(n, 'menú', 'menús')} por día` : '—';
 }
@@ -254,7 +257,7 @@ function abrirCliente(id){
   if(!esDueno()) return abrirClienteLectura(c);
 
   const d = c || { nombre: '', tipo: 'casual', empresaNombre: '', telefono: '', notas: '', direccion: '', referencia: '', lat: null, lng: null,
-                   dias: [1, 2, 3, 4, 5], cantAlmuerzo: 1, cantCena: 0, cadeteId: null, activo: true };
+                   dias: diasAlAlta('casual'), cantAlmuerzo: 1, cantCena: 0, cadeteId: null, activo: true };
   const sal = c ? (state.saldos[c.id] || { pagado: 0, consumido: 0, saldo: 0 }) : null;
   const modo = c ? modoPago(c) : null, sv = c ? saldoDe(c.id) : 0;
   // pack: créditos prepagos · sanatorio/empresa: cuenta que se cobra a fin de semana · casual: no usa créditos
@@ -330,13 +333,13 @@ function abrirCliente(id){
           <div class="help">Con días marcados aparece solo en Hoy para entregarle sus viandas (cada una descuenta un crédito). A quien solo hace pedidos sueltos dejalo sin días.</div></div>
         <div class="field"><label for="f-menu-almuerzo">Menú habitual</label><select id="f-menu-almuerzo">${opcionesMenu(d.menuAlmuerzoId || d.menuCenaId)}</select>
           <div class="help">Lo que se le prepara: se descuenta del stock en cada entrega.</div></div>
-        <div class="frow">
+        <div id="grupo-defaults" class="${d.tipo === 'casual' ? 'hidden' : ''}"><div class="frow">
           <div class="field"><label for="f-cant-menus">Menús por día</label><input type="number" id="f-cant-menus" min="0" step="1" value="${d.cantAlmuerzo + d.cantCena}"></div>
           ${state.versionBase >= 10 ? `<div class="field"><label for="f-precio-vianda">Precio por plato</label>
             <input type="number" id="f-precio-vianda" min="0" step="100" value="${d.precioVianda ?? ''}" placeholder="El de la carta"></div>` : ''}
         </div>
         <div class="help" style="margin:-4px 0 12px">Menú, cantidad y precio son lo que se propone al armar cada pedido (se cambian ahí si ese día es distinto).
-          Con días marcados, además, recibe esa cantidad fija cada día: a quien pide distinto cada día (sanatorio, empresas) dejalo sin días.</div>
+          Con días marcados, además, recibe esa cantidad fija cada día: a quien pide distinto cada día (sanatorio, empresas) dejalo sin días.</div></div>
         <div class="field"><label for="f-cadete">Cadete habitual</label><select id="f-cadete"><option value="">Sin asignar</option>
           ${state.cadetes.filter(k => k.activo || k.id === d.cadeteId).map(k => `<option value="${k.id}" ${d.cadeteId === k.id ? 'selected' : ''}>${esc(k.nombre)}</option>`).join('')}</select></div>
         ${ubicacionFormHtml('f', d)}
@@ -353,7 +356,15 @@ function abrirCliente(id){
     onClose: () => { clienteAbierto = null; document.querySelectorAll('[data-id].opened').forEach(x => x.classList.remove('opened')); },
     onMount: (el) => {
       const tipoSel = el.querySelector('#f-tipo');
-      tipoSel.addEventListener('change', () => el.querySelector('#grupo-empresa').classList.toggle('hidden', tipoSel.value !== 'empresa'));
+      tipoSel.addEventListener('change', () => {
+        el.querySelector('#grupo-empresa').classList.toggle('hidden', tipoSel.value !== 'empresa');
+        // el casual no tiene cantidad ni precio por defecto: pide suelto, con el precio de la carta
+        el.querySelector('#grupo-defaults').classList.toggle('hidden', tipoSel.value === 'casual');
+        // cliente nuevo: los días siguen al tipo, salvo que ya los hayan marcado a mano
+        if(!c && !diasEl.dataset.editado){ const ds = diasAlAlta(tipoSel.value); el.querySelectorAll('[name="f-dias"]').forEach(x => { x.checked = ds.includes(Number(x.value)); }); }
+      });
+      const diasEl = el.querySelector('.days');
+      diasEl.addEventListener('change', () => { diasEl.dataset.editado = '1'; });
       // los créditos al alta siguen al tipo, salvo que ya los hayan escrito a mano
       const ini = el.querySelector('#f-saldo-inicial');
       if(ini){
@@ -385,7 +396,7 @@ function abrirCliente(id){
           cadeteId: el.querySelector('#f-cadete').value || null,
           menuAlmuerzoId: el.querySelector('#f-menu-almuerzo').value || null,
           menuCenaId: null,
-          precioVianda: el.querySelector('#f-precio-vianda') && el.querySelector('#f-precio-vianda').value !== '' ? Number(el.querySelector('#f-precio-vianda').value) : null
+          precioVianda: tipoSel.value !== 'casual' && el.querySelector('#f-precio-vianda') && el.querySelector('#f-precio-vianda').value !== '' ? Number(el.querySelector('#f-precio-vianda').value) : null
         };
         const b = ev.currentTarget; b.disabled = true;
         try{

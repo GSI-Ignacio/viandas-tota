@@ -16,7 +16,7 @@ Para tener también el panel web (Studio, en http://127.0.0.1:54323), usá `supa
 ## Crear la base desde cero
 
 ```bash
-for f in schema.sql migracion-v2.sql migracion-v3.sql migracion-v4.sql migracion-v5.sql migracion-v6.sql migracion-v7.sql migracion-v8.sql; do
+for f in schema.sql migraciones/migracion-v2.sql migraciones/migracion-v3.sql migraciones/migracion-v4.sql actualizar-base.sql; do
   psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -v ON_ERROR_STOP=1 -f $f
 done
 ```

@@ -184,15 +184,16 @@ function opcionesMenu(sel, fecha){
     + `<option value="" ${!sel ? 'selected' : ''}>Vianda sin menú</option>`;
 }
 const ELEGIR = '__elegir';   // línea nueva sin plato elegido todavía
-/* ¿El cliente tiene valores por defecto para sus pedidos? (menú habitual, precio propio o más de un menú por día) */
-const tieneDefaults = (c) => !!c && (!!menuPorId(c.menuAlmuerzoId) || c.precioVianda != null || c.cantAlmuerzo > 1);
+/* ¿El cliente tiene valores por defecto para sus pedidos? (menú habitual, precio propio o más de un menú por día;
+   el casual solo puede tener menú habitual) */
+const tieneDefaults = (c) => !!c && (!!menuPorId(c.menuAlmuerzoId) || (c.tipo !== 'casual' && (c.precioVianda != null || c.cantAlmuerzo > 1)));
 /* La línea que se carga sola al elegir un cliente con valores por defecto. */
 function lineaPorDefecto(c){
   const hab = menuPorId(c.menuAlmuerzoId);
   return { menuId: hab && menuDisponible(hab) ? hab.id : ELEGIR, guarnicionId: null, cantidad: cantidadPorDefecto(c), nota: '' };
 }
 /* Cantidad que se propone en un pedido nuevo: los "menús por día" del cliente (al menos 1). */
-const cantidadPorDefecto = (c) => Math.max(1, (c && c.cantAlmuerzo) || 1);
+const cantidadPorDefecto = (c) => c && c.tipo === 'casual' ? 1 : Math.max(1, (c && c.cantAlmuerzo) || 1);
 /* Guarniciones: las del día si se eligieron; si no, todas. */
 function opcionesGuarnicion(sel, fecha){
   const delDia = fecha ? guarnicionesDelDia(fecha) : [];
