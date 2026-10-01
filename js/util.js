@@ -107,7 +107,7 @@ function icon(name, size = 16, cls = ''){
 /* ---------- avisos (toasts) ---------- */
 /* accion: { label, fn } agrega un botón (por ejemplo "Deshacer"). */
 function toast(msg, tipo = 'ok', ms, accion){
-  if(avisosEnSilencio){ avisosEnSilencio.push(msg); return; }
+  if(avisosEnSilencio){ avisosEnSilencio.push({ campo: null, mensaje: msg }); return; }
   const root = document.getElementById('toast-root');
   const el = document.createElement('div');
   el.className = 'toast ' + tipo;
@@ -155,7 +155,8 @@ function formulario(root, { botones, cambios = false, completo = null, extra = n
     });
     return [...xs];
   };
-  const vacio = (x) => String(x.value).trim() === '' || (x.dataset.req && x.value === x.dataset.req);
+  // siempre true/false: classList.toggle con undefined da vuelta la clase en vez de sacarla
+  const vacio = (x) => String(x.value).trim() === '' || (!!x.dataset.req && x.value === x.dataset.req);
   // el aviso de lo que falta, al lado de los botones
   const pie = bs[0] && bs[0].parentElement;
   let aviso = pie && pie.querySelector('.form-aviso');
@@ -163,12 +164,26 @@ function formulario(root, { botones, cambios = false, completo = null, extra = n
     aviso = document.createElement('span'); aviso.className = 'form-aviso'; aviso.setAttribute('aria-live', 'polite');
     const sp = pie.querySelector(':scope > .sp'); if(sp) sp.after(aviso); else pie.prepend(aviso);
   }
+  // lo que falta (además de los obligatorios vacíos) se marca en el lugar: borde rojo y el mensaje debajo
+  let marca = null;
+  const marcar = (campo, texto) => {
+    if(marca && marca.campo === campo && marca.texto === texto && marca.msg.isConnected) return;
+    if(marca){ marca.campo.classList.remove('falta-borde'); marca.msg.remove(); marca = null; }
+    if(!campo || !campo.isConnected) return;
+    campo.classList.add('falta-borde');
+    const msg = document.createElement('div');
+    msg.className = 'falta'; msg.setAttribute('role', 'status');
+    msg.innerHTML = `${icon('alerta', 13)}<span>${texto}</span>`;
+    const cont = campo.closest('.field') || campo.closest('.cline');
+    if(cont) cont.append(msg); else campo.after(msg);
+    marca = { campo, texto, msg };
+  };
   let inicial = new Map(), firmaInicial = '';
   const foto = () => { inicial = new Map(campos().map(x => [x, valor(x)])); firmaInicial = firma(); };
   const revisar = () => {
     if(!root.isConnected) return;
     let faltan = false;
-    for(const x of requeridos()){ const v = !oculto(x) && vacio(x); x.classList.toggle('req-vacio', v); if(v) faltan = true; }
+    for(const x of requeridos()){ const v = !oculto(x) && vacio(x) === true; x.classList.toggle('req-vacio', v); if(v) faltan = true; }
     let hay = true;
     if(cambios){
       for(const x of campos()){
@@ -177,16 +192,18 @@ function formulario(root, { botones, cambios = false, completo = null, extra = n
       }
       hay = firma() !== firmaInicial;
     }
-    let otro = '';
+    let otro = null;
     if(!faltan && completo){
       const prev = avisosEnSilencio; avisosEnSilencio = [];
-      try{ if(!completo()) otro = avisosEnSilencio[0] || 'Falta completar algo.'; }
+      try{ if(!completo()) otro = avisosEnSilencio[0] || { campo: null, mensaje: 'Falta completar algo.' }; }
       finally{ avisosEnSilencio = prev; }
     }
+    marcar(otro && otro.campo, otro && otro.mensaje);
     const ok = !faltan && !otro && hay;
-    const motivo = faltan ? 'Completá los campos en rojo.' : otro ? String(otro).replace(/<[^>]+>/g, '') : hay ? '' : 'Todavía no cambiaste nada.';
+    const motivo = faltan ? 'Completá los campos en rojo.' : otro ? String(otro.mensaje).replace(/<[^>]+>/g, '') : hay ? '' : 'Todavía no cambiaste nada.';
     bs.forEach(b => { if(!b.classList.contains('busy')) b.disabled = !ok; b.title = motivo; });
-    const t = faltan || otro ? motivo : '';
+    // en el pie solo va lo que no tiene un lugar propio (los obligatorios ya están en rojo)
+    const t = faltan ? motivo : otro && !otro.campo ? motivo : '';
     if(aviso && aviso.textContent !== t) aviso.textContent = t;   // solo si cambia: si no, el observador se dispararía de nuevo
   };
   let pend = false;
@@ -195,7 +212,7 @@ function formulario(root, { botones, cambios = false, completo = null, extra = n
   const quitar = () => {
     root.removeEventListener('input', revisar); root.removeEventListener('change', revisar);
     root.removeEventListener('click', pronto); root.removeEventListener('ubicacion', revisar);
-    obs.disconnect();
+    obs.disconnect(); marcar(null);
     if(root._formulario === api) root._formulario = null;
   };
   root.addEventListener('input', revisar);
@@ -219,7 +236,7 @@ const REQ = '<span class="req"> (obligatorio)</span>';
    Mientras un formulario se revisa en silencio (ver formulario()), solo anota el mensaje. */
 let avisosEnSilencio = null;
 function marcarFalta(campo, mensaje){
-  if(avisosEnSilencio){ avisosEnSilencio.push(mensaje); return false; }
+  if(avisosEnSilencio){ avisosEnSilencio.push({ campo, mensaje }); return false; }
   if(!campo){ toast(mensaje, 'err'); return false; }
   const cont = campo.closest('.field') || campo.closest('.cline') || campo.parentElement;
   let msg = [...cont.children].find(x => x.classList.contains('falta'));

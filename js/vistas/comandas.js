@@ -247,7 +247,7 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
         </div>` : ''}
         <div class="com-precio muted" id="com-precio-hint"></div>
         <div id="com-lineas">${lineas.map((l, i) => lineaComandaHtml(l, i, fecha, c)).join('')}</div>
-        <p class="muted com-vacio" id="com-vacio">${nueva ? 'Elegí el cliente: si tiene menú habitual, cantidad o precio, se cargan solos. Si no, agregá los platos.' : 'Agregá los platos del pedido.'}</p>
+        <p class="muted com-vacio" id="com-vacio">Elegí el cliente: si tiene menú habitual, cantidad o precio, se cargan solos. Si no, agregá los platos.</p>
         ${editable ? `<button class="btn" type="button" id="com-agregar" style="margin-top:8px">${icon('plus', 13)} Agregar plato</button>` : ''}
         ${!state.menus.length ? `<p class="muted" style="font-size:13px;margin-top:10px">Todavía no hay menús en la carta. ${esDueno() ? 'Cargalos en Stock → Menús (podés pegar la carta de WhatsApp).' : ''}</p>` : ''}
       </div>
@@ -276,7 +276,8 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
         const conPlatos = ls.filter(l => l.cantidad > 0);
         const valor = conPlatos.some(l => l.precio == null) ? null : conPlatos.reduce((s, l) => s + l.precio * l.cantidad, 0);
         el.querySelector('#com-total').textContent = plural(tot, 'plato') + (valor != null && tot ? ' · ' + fmtPlata(valor) : '');
-        el.querySelector('#com-vacio').hidden = cont.children.length > 0;
+        // la pista solo hasta elegir el cliente: después, lo que falta se marca debajo de "Agregar plato"
+        el.querySelector('#com-vacio').hidden = cont.children.length > 0 || !nueva || !!cli;
         const hint = el.querySelector('#com-precio-hint');
         if(hint) hint.textContent = cli && cli.precioVianda != null ? `Precio de ${cli.nombre}: ${fmtPlata(cli.precioVianda)} por plato. Se puede cambiar en cada plato.` : '';
         cont.querySelectorAll('.cline').forEach(r => {

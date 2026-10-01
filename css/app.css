@@ -206,8 +206,9 @@ svg{display:block;flex:none}
 .inp,.field input,.field select,.field textarea,.sel-btn{width:100%;height:38px;padding:0 12px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
   background:var(--ctl);color:var(--text);font-size:15px;outline:none;transition:border-color var(--t-fast) linear,box-shadow var(--t-fast) linear}
 .field textarea{height:auto;min-height:64px;padding:8px 10px;resize:vertical;line-height:1.45}
-.inp:focus,.field input:focus,.field select:focus,.field textarea:focus,.sel-btn:focus-visible,.sel-btn[aria-expanded="true"]{border-color:color-mix(in srgb,var(--accent) 60%,transparent);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+/* el campo con el cursor: claro y neutro, para no confundirlo con el rojo (vacío) ni el azul (cambiado) */
+.inp:focus,.field input:focus,.field select:focus,.field textarea:focus,.sel-btn:focus-visible,.sel-btn[aria-expanded="true"]{border-color:color-mix(in srgb,var(--text) 55%,transparent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--text) 12%,transparent)}
 .inp.sm{height:32px;font-size:13px;border-radius:7px}
 .inp.search-inp{padding-left:30px;background:var(--ctl) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%236B6255' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='6' cy='6' r='4.5'/%3E%3Cpath d='m9.5 9.5 3 3'/%3E%3C/svg%3E") no-repeat 10px 50%}
 /* desplegables propios (el select nativo queda oculto al lado) */
@@ -240,7 +241,7 @@ svg{display:block;flex:none}
 /* obligatorios: asterisco rojo en la etiqueta; al faltar, el campo en rojo con el mensaje debajo */
 /* obligatorio: el texto solo para lectores de pantalla; el campo vacío lleva el borde rojo */
 .req{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.req-vacio,.sel-btn.req-vacio{border-color:var(--bad)!important}
+.req-vacio,.sel-btn.req-vacio,.falta-borde,.sel-btn.falta-borde{border-color:var(--bad)!important}
 /* campo cambiado (al editar algo que ya existe) */
 /* en azul, para no confundirlo con el naranja del campo donde está el cursor */
 .cambiado,.sel-btn.cambiado{border-color:var(--pack)!important;background:color-mix(in srgb,var(--pack) 12%,var(--panel))!important}
