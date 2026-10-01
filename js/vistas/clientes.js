@@ -8,7 +8,9 @@ let clienteAbierto = null;
 
 const TIPO_LABEL = { empresa: 'Empresa', casual: 'Casual', pack: 'Pack de dietas', sanatorio: 'Sanatorio' };
 const TIPOS = ['casual', 'empresa', 'pack', 'sanatorio'];
-const CREDITOS_POR_DEFECTO = 10;   // lo que se propone al cargar un pago y al dar de alta un cliente
+const CREDITOS_POR_DEFECTO = 10;   // lo que se propone al cargar un pago y al dar de alta un pack de dietas
+// al alta solo los packs arrancan con créditos: casuales, empresas y sanatorios pagan sus pedidos aparte
+const creditosAlAlta = (tipo) => tipo === 'pack' ? CREDITOS_POR_DEFECTO : 0;
 function tipoTag(c){ return `<span class="tag ${c.tipo === 'empresa' ? 'pine' : c.tipo === 'pack' ? 'warn' : c.tipo === 'sanatorio' ? 'ok' : 'plain'}">${TIPO_LABEL[c.tipo] || 'Casual'}</span>`; }
 function daychipsHtml(dias){ return `<span class="daychips" aria-label="Días: ${dias.map(d => DIAS_LARGOS[d - 1]).join(', ')}">${DIAS_CORTOS.map((l, i) => `<i class="${dias.includes(i + 1) ? 'on' : ''}">${l}</i>`).join('')}</span>`; }
 function llevaTxt(c){
@@ -205,8 +207,8 @@ function abrirCliente(id){
         ${waLink(c.telefono, '') ? `<a class="btn lg" href="${waLink(c.telefono, mensajeRecordatorio(c))}" target="_blank" rel="noopener">${icon('wa', 14)} Avisar saldo</a>` : ''}
         ${c.telefono ? `<a class="btn lg" href="${telLink(c.telefono)}">${icon('tel', 14)} Llamar</a>` : ''}
       </div>` : `<div class="frow">
-        <div class="field"><label for="f-saldo-inicial">Créditos al alta</label><input type="number" id="f-saldo-inicial" min="0" step="1" value="${CREDITOS_POR_DEFECTO}">
-          <div class="help">Sin créditos no se le puede entregar.</div></div>
+        <div class="field"><label for="f-saldo-inicial">Créditos al alta</label><input type="number" id="f-saldo-inicial" min="0" step="1" value="${creditosAlAlta(d.tipo)}">
+          <div class="help">Solo los packs de dietas arrancan con ${CREDITOS_POR_DEFECTO}. Casuales, empresas y sanatorios en 0: sus pedidos no usan créditos.</div></div>
         <div class="field"><label for="f-monto-inicial">Monto (opcional)</label><input type="number" id="f-monto-inicial" min="0" step="1" placeholder="$"></div></div>`;
 
   abrirPanel({
@@ -253,6 +255,12 @@ function abrirCliente(id){
     onMount: (el) => {
       const tipoSel = el.querySelector('#f-tipo');
       tipoSel.addEventListener('change', () => el.querySelector('#grupo-empresa').classList.toggle('hidden', tipoSel.value !== 'empresa'));
+      // los créditos al alta siguen al tipo, salvo que ya los hayan escrito a mano
+      const ini = el.querySelector('#f-saldo-inicial');
+      if(ini){
+        ini.addEventListener('input', () => { ini.dataset.editado = '1'; });
+        tipoSel.addEventListener('change', () => { if(!ini.dataset.editado) ini.value = creditosAlAlta(tipoSel.value); });
+      }
       const ubic = bindUbicacion(el, 'f', d);
       el.querySelector('#cancelar-modal').addEventListener('click', () => cerrarPanel());
       const bp = el.querySelector('#btn-pago');
