@@ -14,7 +14,7 @@ function filaHechaHtml({ estado, nombre, detalle, etiqueta, abrir, toggle }){
     <span class="est ${estado}" aria-hidden="true">${icon(ico, 13)}</span>
     <div class="t" ${abrir.attr} role="button" tabindex="0" title="${abrir.title}">
       <div class="n1"><b>${esc(nombre)}</b><span> · ${detalle}</span></div></div>
-    <span class="tag ${{ skip: 'plain', nr: 'warn' }[estado] || estado}">${etiqueta}</span>
+    <span class="tag ${{ nr: 'bad' }[estado] || estado}">${etiqueta}</span>
     ${toggle}
   </div>`;
 }
@@ -94,7 +94,7 @@ function renderHoy(bar, main){
   const chipsHtml = (chips) => `<div class="echips">${chips.filter(x => x.siempre || x.n).map(x =>
     `<span class="echip ${x.cls} ${x.n ? '' : 'cero'}"><i></i><b>${x.n}</b>${esc(x.label)}</span>`).join('')}</div>`;
   const bloque = ({ titulo, id, attrs = '', chips, nPend, pendHtml, vacio, hechasTitulo, nHechas, hechasHtml, clave }) => `
-    <section class="tsec bloque-dia" style="margin-top:0;margin-bottom:26px" ${id ? `id="${id}"` : ''} ${attrs}>
+    <section class="tsec bloque-dia ${id === 'hoy-pedidos' ? 'pd' : 'pk'}" style="margin-top:0;margin-bottom:26px" ${id ? `id="${id}"` : ''} ${attrs}>
       <h2>${titulo}</h2>
       ${chipsHtml(chips)}
       <div class="clist lista-dia">
@@ -151,8 +151,8 @@ function renderHoy(bar, main){
     <p class="hello-sub">${!delDia.length && !pedidos.length ? 'Hoy no hay viandas programadas ni pedidos cargados.'
       : r.pendientes || rp.pendientes ? `Faltan entregar ${[r.pendientes && `<b>${plural(r.pendientes, 'vianda')}</b> de packs`, rp.pendientes && `<b>${plural(rp.pendientes, 'pedido')}</b>`].filter(Boolean).join(' y ')}.` : 'Todo lo de hoy está registrado.'}</p>
     ${delDia.length || pedidos.length ? `<div class="kpis">
-      <div class="kpi ${r.pendientes ? 'warn' : ''}"><b>${r.pendientes}</b><span>viandas de packs por entregar</span></div>
-      <div class="kpi ${rp.pendientes ? 'warn' : ''}"><b>${rp.pendientes}</b><span>pedidos por entregar</span></div>
+      <div class="kpi ${r.pendientes ? 'pack' : ''}"><b>${r.pendientes}</b><span>viandas de packs por entregar</span></div>
+      <div class="kpi ${rp.pendientes ? 'ped' : ''}"><b>${rp.pendientes}</b><span>pedidos por entregar</span></div>
       <div class="kpi ok"><b>${r.entregadas + rp.viandasEntregadas}</b><span>entregadas hoy</span></div>
     </div>
     ${delDia.length ? `<div class="progress">${progresoHtml(r, { sinPendientes: true })}</div>` : ''}` : ''}

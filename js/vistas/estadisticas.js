@@ -149,7 +149,7 @@ function htmlEstadisticas(a, b, r){
       <span class="es-v">${v ? fmtUno(v) : '—'}</span><div class="es-bar"><i style="height:${v ? Math.max(4, v / maxS * 100) : 0}%"></i></div><span class="es-d">${nombresDia[i]}</span></div>`).join('')}</div>`;
 
   // tipos de cliente
-  const TIPOS_COL = { empresa: 'var(--accent)', pack: 'var(--ok)', sanatorio: 'var(--pine)', casual: '#E0B866' };
+  const TIPOS_COL = { empresa: 'var(--accent)', pack: 'var(--pack)', sanatorio: 'var(--pine)', casual: '#FFC53D' };
   const tipos = Object.entries(a.porTipo).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]);
   const totTipos = tipos.reduce((s, [, v]) => s + v, 0) || 1;
   const bloqueTipos = tipos.length ? `<div class="est-segbar">${tipos.map(([t, v]) => `<i style="flex:${v};background:${TIPOS_COL[t] || 'var(--text-4)'}" title="${esc(TIPO_LABEL[t] || t)}: ${v}"></i>`).join('')}</div>
@@ -174,7 +174,7 @@ function htmlEstadisticas(a, b, r){
       <div class="ec-head"><h3>Viandas por día</h3>
         <span class="ec-leg"><span><i class="pk"></i>Packs</span><span><i class="pd"></i>Pedidos</span></span>
         <span class="sp"></span>
-        <span class="muted">${a.noRecibidas ? `<span style="color:var(--warn-ink)">${a.noRecibidas} no ${a.noRecibidas === 1 ? 'la recibió' : 'las recibieron'} (cobradas)</span> · ` : ''}${a.saltadas ? `<span style="color:var(--text-3)">${plural(a.saltadas, 'vianda salteada', 'viandas salteadas')}</span> · ` : ''}${plural(a.pedidos, 'pedido entregado', 'pedidos entregados')}${a.cancelados ? ` · ${plural(a.cancelados, 'cancelado')}` : ''}</span></div>
+        <span class="muted">${a.noRecibidas ? `<span style="color:var(--bad-ink)">${a.noRecibidas} no ${a.noRecibidas === 1 ? 'la recibió' : 'las recibieron'} (cobradas)</span> · ` : ''}${a.saltadas ? `<span style="color:var(--skip-ink)">${plural(a.saltadas, 'vianda salteada', 'viandas salteadas')}</span> · ` : ''}${plural(a.pedidos, 'pedido entregado', 'pedidos entregados')}${a.cancelados ? ` · ${plural(a.cancelados, 'cancelado')}` : ''}</span></div>
       <div class="est-chart" data-chart>
         <div class="ec-grid"><span>${fmtNum(max)}</span><span>${fmtNum(Math.round(max / 2))}</span><span>0</span></div>
         <div class="ec-bars">${barras}</div>

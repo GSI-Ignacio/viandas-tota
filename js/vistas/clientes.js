@@ -395,7 +395,7 @@ async function cargarHistorialCliente(el, c){
     }
     const ce = el.querySelector('#c-entregas');
     if(ce){
-      const est = v => v === 'entregado' ? '<span class="tag ok">Entregado</span>' : v === 'no_recibido' ? '<span class="tag warn">No lo recibió</span>' : v === 'saltado' ? '<span class="tag plain">Salteado</span>' : '';
+      const est = v => v === 'entregado' ? '<span class="tag ok">Entregado</span>' : v === 'no_recibido' ? '<span class="tag bad">No lo recibió</span>' : v === 'saltado' ? '<span class="tag skip">Salteado</span>' : '';
       ce.innerHTML = entregas.filter(e => e.almuerzo || e.cena).length ? entregas.filter(e => e.almuerzo || e.cena).map(e => `<div class="hist">
           <span class="w">${formatFechaCorta(e.fecha)}</span>
           <span class="t">${e.almuerzo ? `Almuerzo ${est(e.almuerzo)}` : ''} ${e.cena ? `Cena ${est(e.cena)}` : ''}</span>

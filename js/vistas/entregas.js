@@ -96,8 +96,8 @@ function progresoHtml(r, { sinPendientes = false } = {}){
   return `<div class="meter" role="img" aria-label="${r.entregadas} de ${r.esperadas} viandas entregadas">
       <i class="ok" style="width:${(r.entregadas / tot * 100).toFixed(1)}%"></i><i class="nr" style="width:${(nr / tot * 100).toFixed(1)}%"></i><i class="skip" style="width:${(r.saltadas / tot * 100).toFixed(1)}%"></i></div>
     <span class="pl"><b>${r.entregadas}</b> de ${r.esperadas} viandas entregadas</span>
-    ${nr ? `<span class="pl" style="color:var(--warn-ink)">${nr} no ${nr === 1 ? 'la recibió' : 'las recibieron'}</span>` : ''}
-    ${r.saltadas ? `<span class="pl" style="color:var(--text-3)">${plural(r.saltadas, 'salteada')}</span>` : ''}
+    ${nr ? `<span class="pl" style="color:var(--bad-ink)">${nr} no ${nr === 1 ? 'la recibió' : 'las recibieron'}</span>` : ''}
+    ${r.saltadas ? `<span class="pl" style="color:var(--skip-ink)">${plural(r.saltadas, 'salteada')}</span>` : ''}
     ${sinPendientes ? '' : `<span class="pl">${r.pendientes} pendientes</span>`}`;
 }
 

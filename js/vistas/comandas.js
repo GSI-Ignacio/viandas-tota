@@ -121,7 +121,7 @@ function renderComandas(bar, main){
   const totalDia = pedidosDelDia(f).filter(p => p.estado !== 'cancelada').reduce((s, p) => s + (p.total || 0), 0);
   main.innerHTML = `<div class="page">
     <div class="kpis" style="margin-top:0">
-      <div class="kpi ${rp.pendientes ? 'warn' : ''}"><b>${rp.pendientes}</b><span>pedidos por entregar · ${plural(rp.viandasPendientes, 'plato')}</span></div>
+      <div class="kpi ${rp.pendientes ? 'ped' : ''}"><b>${rp.pendientes}</b><span>pedidos por entregar · ${plural(rp.viandasPendientes, 'plato')}</span></div>
       <div class="kpi ok"><b>${rp.entregados}</b><span>entregados</span></div>
       <div class="kpi"><b>${fmtPlata(totalDia) || '$ 0'}</b><span>total del día (sin cancelados)</span></div>
     </div>
@@ -287,7 +287,12 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
       const borrar = el.querySelector('#borrar-comanda');
       if(borrar) borrar.addEventListener('click', async () => {
         if(!(await confirmar('Eliminar pedido', `¿Eliminar el pedido de <b>${esc(c.nombre)}</b> del ${esc(formatFechaMedia(fecha))}?`, { ok: 'Eliminar', peligro: true }))) return;
-        try{ await guardarComanda(c, fecha, 'almuerzo', []); toast('Pedido eliminado.'); cerrarPanel(); refrescar(); }
+        try{
+          // se borran todas sus líneas y se vuelve a traer el día entero, para que no quede nada viejo en pantalla
+          for(const t of ['almuerzo', 'cena']) if(lineasComanda(c.id, fecha, t).length) await guardarComanda(c, fecha, t, []);
+          await recargarComandas(fecha);
+          toast('Pedido eliminado.'); cerrarPanel(); renderMenu(); refrescar();
+        }
         catch(err){ toastError('No se pudo eliminar el pedido', err); }
       });
       const guardar = el.querySelector('#guardar-comanda');

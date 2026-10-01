@@ -209,7 +209,7 @@ function abrirSelectorImportar(){
 let refrescando = false;
 async function actualizarHoy(){
   if(refrescando || document.hidden || !state.sesion) return;
-  if(!['hoy', 'entregas', 'rutas', 'mi-ruta'].includes(activeTab)) return;
+  if(!['hoy', 'comandas', 'entregas', 'rutas', 'mi-ruta'].includes(activeTab)) return;
   const tipeando = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
   if(capas.length || tipeando) return;
   refrescando = true;
@@ -228,11 +228,36 @@ async function actualizarHoy(){
       const k = clave(x.cliente_id, x.fecha), antes = state.rutas[k];
       if(!antes || antes.cadeteId !== x.cadete_id || antes.orden !== x.orden){ state.rutas[k] = { cadeteId: x.cadete_id, orden: x.orden }; cambio = true; }
     }
-    if(cambio){ await recargarSaldos(); if(!capas.length) refrescar(); }
+    // pedidos: lo que cargaron, cambiaron o borraron otros usuarios (o este mismo en otra pestaña)
+    let cambioPedidos = false;
+    if(!esCadete()){
+      const firma = (ls) => ls.map(x => [x.id, x.estado, x.cantidad, x.menuId, x.guarnicionId, x.nota, x.precio].join('~')).sort().join('|');
+      for(const f of [...new Set([hoy, activeTab === 'comandas' ? comandaFecha : hoy])]){
+        const filas = await traerTodo(() => sb.from('comandas').select('*').eq('fecha', f));
+        const actuales = Object.entries(state.comandas).filter(([k]) => k.split('|')[1] === f).flatMap(([, ls]) => ls);
+        if(firma(filas.map(mapComanda)) !== firma(actuales)){ guardarComandasEnEstado(filas, [f]); cambioPedidos = true; }
+      }
+    }
+    if(cambioPedidos) await recargarProductos().catch(() => {});
+    if(cambio) await recargarSaldos();
+    if((cambio || cambioPedidos) && !capas.length) refrescar();
   }catch(_){ /* sin conexión: se reintenta en la próxima vuelta */ }
   refrescando = false;
 }
 setInterval(actualizarHoy, 45000);
+
+/* Al volver a la pestaña se trae todo de nuevo (otro usuario pudo cargar o borrar cosas mientras tanto). */
+let ultimaVuelta = Date.now();
+async function alVolver(){
+  if(document.hidden || !state.sesion || refrescando || capas.length) return;
+  if(Date.now() - ultimaVuelta < 20000) return;
+  ultimaVuelta = Date.now();
+  refrescando = true;
+  try{ await cargarDatos(); renderMenu(); refrescar(); }catch(_){ /* se reintenta la próxima vez */ }
+  refrescando = false;
+}
+document.addEventListener('visibilitychange', alVolver);
+addEventListener('focus', alVolver);
 
 /* ============================================================
    INICIO
