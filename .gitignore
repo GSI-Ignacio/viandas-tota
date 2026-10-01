@@ -1,0 +1,6 @@
+# configuración de la base local (solo para la compu)
+js/config.local.js
+supabase/.temp/
+supabase/.branches/
+supabase/usuarios-locales.txt
+.DS_Store

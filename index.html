@@ -23,7 +23,7 @@ catch(e){document.documentElement.dataset.theme='light';}</script>
 
 <div id="login-screen" class="loginwrap hidden">
   <div class="login">
-    <div class="brand"><span class="mark">V</span><span id="login-brand">Gestión de Viandas</span></div>
+    <div class="brand"><span class="mark">V</span><span id="login-brand">Gestión de Viandas</span><span class="env-local" id="env-login" hidden>Base local</span></div>
     <div class="logincard">
       <h1>Ingresar</h1>
       <p class="sub">Con el usuario que te dieron para el negocio.</p>
@@ -54,6 +54,8 @@ catch(e){document.documentElement.dataset.theme='light';}</script>
 <div id="overlay-root"></div>
 <div id="toast-root" class="toasts" aria-live="polite"></div>
 
+<!-- en la compu (127.0.0.1 / localhost) se usa la base local si existe js/config.local.js; en Netlify, siempre producción -->
+<script>if(/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) document.write('<script src="js/config.local.js?' + Date.now() + '"><\/script>');</script>
 <script src="js/config.js?v=20"></script>
 <script src="js/util.js?v=20"></script>
 <script src="js/data.js?v=20"></script>

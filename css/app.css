@@ -929,3 +929,8 @@ body{background:radial-gradient(1000px 520px at 8% -10%,var(--glow),transparent 
 .cred-box.modo-cuenta{background:linear-gradient(150deg,color-mix(in srgb,var(--skip) 12%,var(--panel-2)),var(--panel-2) 60%)}
 .cred-box.modo-sin{background:var(--panel-2)}
 .cred-nota{display:flex;gap:8px;align-items:center;margin:0;color:var(--text-3);font-size:14px}
+
+/* aviso de que se está usando la base local (solo en la compu) */
+.env-local{flex:none;display:inline-flex;align-items:center;height:22px;padding:0 9px;margin-left:8px;border-radius:999px;
+  background:var(--skip);color:var(--on-fill);font:700 10.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.env-local[hidden]{display:none}

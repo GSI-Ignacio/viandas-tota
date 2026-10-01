@@ -54,7 +54,8 @@ function renderMenu(){
   const abierto = !!document.querySelector('#menu-usuario:not([hidden])');
   nav.innerHTML = `
     <div class="ws" title="${esc(state.config.nombre)}"><span class="mark">${esc(iniciales(state.config.nombre)[0])}</span>
-      <div class="txt"><div class="wsname">${esc(state.config.nombre)}</div><div class="wssub">Gestión de viandas</div></div></div>
+      <div class="txt"><div class="wsname">${esc(state.config.nombre)}</div><div class="wssub">Gestión de viandas</div></div>
+      ${BASE_LOCAL ? '<span class="env-local" title="Estás usando la base de datos de tu compu, no la de producción">Base local</span>' : ''}</div>
     <nav class="tn-tabs" aria-label="Secciones">${grupos.map(g => tabs.filter(t => t.grupo === g).map(btn).join('')).join('<span class="tn-sep" aria-hidden="true"></span>')}</nav>
     <div class="tn-sp"></div>
     ${esCadete() ? '' : `<button class="search" id="btn-buscar" type="button" title="Buscar clientes y páginas (⌘K)">${icon('buscar', 14)}<span class="txt">Buscar…</span><span class="kbd">⌘K</span></button>`}
@@ -331,6 +332,7 @@ async function init(){
     else state.sesion = session;
   });
   const { data: { session } } = await sb.auth.getSession();
+  if(BASE_LOCAL){ const el = document.getElementById('env-login'); if(el) el.hidden = false; document.title = '[LOCAL] ' + document.title; }
   if(session) bootApp(session); else mostrarLogin();
 }
 init();
