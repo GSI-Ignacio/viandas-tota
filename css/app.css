@@ -246,6 +246,8 @@ svg{display:block;flex:none}
 /* en azul, para no confundirlo con el naranja del campo donde está el cursor */
 .cambiado,.sel-btn.cambiado{border-color:var(--pack)!important;background:color-mix(in srgb,var(--pack) 12%,var(--panel))!important}
 .days label.cambiado span{outline:2px solid var(--pack);outline-offset:1px}
+/* vacío gana sobre cambiado: un obligatorio que se borró se ve rojo, no azul */
+.cambiado.req-vacio,.sel-btn.cambiado.req-vacio,.cambiado.falta-borde,.sel-btn.cambiado.falta-borde{border-color:var(--bad)!important;background:var(--ctl)!important}
 .form-aviso{font-size:13px;color:var(--bad-ink);margin-right:auto;min-width:0}
 .form-aviso:empty{display:none}
 .btn.primary:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
