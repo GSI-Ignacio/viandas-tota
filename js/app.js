@@ -61,7 +61,8 @@ function renderMenu(){
         ${avatarHtml(nombre, 26)}<span class="who"><span class="n" style="display:block">${esc(nombre)}</span><span class="r" style="display:block">${esc(rolTxt)}</span></span>${icon('chevD', 12, 'caret')}</button>
       <div class="menu" id="menu-usuario" role="menu" ${abierto ? '' : 'hidden'}>
         <div class="mwho"><div class="n" id="user-email">${esc(email)}</div><div class="r">${esc(rolTxt)}</div></div>
-        ${esDueno() ? `<button class="mi" id="btn-backup" type="button" role="menuitem">${icon('backup', 15)} Copia de seguridad</button>` : ''}
+        ${esDueno() ? `<button class="mi" id="btn-usuarios" type="button" role="menuitem">${icon('equipo', 15)} Usuarios del negocio</button>
+          <button class="mi" id="btn-backup" type="button" role="menuitem">${icon('backup', 15)} Copia de seguridad</button>` : ''}
         <button class="mi" id="btn-logout" type="button" role="menuitem">${icon('salir', 15)} Salir</button>
       </div>
     </div>`;
@@ -80,6 +81,7 @@ function renderMenu(){
   });
   nav.querySelector('#btn-logout').addEventListener('click', async () => { cerrarMenu(); await sb.auth.signOut(); });
   const bk = nav.querySelector('#btn-backup'); if(bk) bk.addEventListener('click', () => { cerrarMenu(); openBackupModal(); });
+  const bu = nav.querySelector('#btn-usuarios'); if(bu) bu.addEventListener('click', () => { cerrarMenu(); irA('equipo'); });
 }
 
 function irA(tab, opciones){
@@ -91,7 +93,9 @@ function irA(tab, opciones){
 
 function render(opciones){
   const tabs = tabsVisibles();
-  const tab = tabs.find(t => t.id === activeTab) || tabs[0];
+  // una pestaña oculta del menú (como Equipo) igual se puede abrir si el rol la permite
+  const tab = tabs.find(t => t.id === activeTab)
+    || TABS.find(t => t.id === activeTab && (!t.roles || t.roles.includes(state.perfil.rol))) || tabs[0];
   activeTab = tab.id;
   renderMenu();
   const bar = document.getElementById('bar');

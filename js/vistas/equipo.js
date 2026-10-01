@@ -2,7 +2,7 @@
    PESTAÑAS: EQUIPO (cadetes y usuarios) y AJUSTES (negocio, cocina, alertas)
 ============================================================= */
 function renderEquipo(bar, main){
-  bar.innerHTML = `<h1>Equipo</h1><div class="sp"></div>
+  bar.innerHTML = `<h1>Usuarios del negocio</h1><div class="sp"></div>
     <button class="btn" id="nuevo-usuario">${icon('plus', 14)} Sumar usuario</button>
     <button class="btn primary" id="nuevo-cadete">${icon('plus', 14)} Nuevo cadete</button>`;
   bar.querySelector('#nuevo-cadete').addEventListener('click', () => abrirCadete(null));
@@ -24,13 +24,14 @@ function renderEquipo(bar, main){
     <section class="tsec" style="margin-top:0">
       <h2>Usuarios con acceso <span class="n">${state.miembros.length}</span></h2>
       <div class="clist">${state.miembros.length ? state.miembros.map(m => {
-        const k = cadetePorId(m.cadete_id);
+        const k = cadetePorId(m.cadete_id), yo = state.sesion && m.auth_id === state.sesion.user.id;
         return `<div class="irow">${avatarHtml(m.nombre || m.email, 26)}
           <div class="t"><div class="n">${esc(m.nombre || m.email)}</div><div class="s">${esc(m.email)}</div></div>
-          <span class="tag ${m.rol === 'ayudante' ? 'pine' : 'warn'}">${ROL_LABEL[m.rol]}${k ? ' · ' + esc(k.nombre) : ''}</span>
-          <div class="acts"><button class="btn quiet" data-quitar="${m.auth_id}" title="Quitar acceso">${icon('borrar', 13)}</button></div></div>`; }).join('')
+          <span class="tag ${m.rol === 'dueno' ? 'ok' : m.rol === 'ayudante' ? 'pine' : 'warn'}">${ROL_LABEL[m.rol]}${k ? ' · ' + esc(k.nombre) : ''}${yo ? ' · vos' : ''}</span>
+          ${yo ? '' : `<div class="acts"><button class="btn quiet" data-quitar="${m.auth_id}" title="Quitar acceso">${icon('borrar', 13)}</button></div>`}</div>`; }).join('')
         : `<div class="calm">${icon('equipo')} Solo vos tenés acceso por ahora.</div>`}</div>
       <p class="muted" style="font-size:13px;line-height:1.55;margin-top:10px">
+        <b>Dueño:</b> puede todo, igual que vos: clientes, pagos, pedidos, stock, menús y usuarios.<br>
         <b>Ayudante:</b> ve todo (entregas, rutas, clientes, stock y registro), registra entregas del día y reorganiza rutas; no puede cambiar clientes, pagos, stock ni ajustes.<br>
         <b>Cadete:</b> ve solo su ruta del día (a quién y dónde entregar) y marca sus entregas.<br>
         Para sumar a alguien: primero creá su usuario en Supabase → Authentication → Users → <i>Add user</i> (email y contraseña, con "Auto confirm"), y después tocá <b>Sumar usuario</b>.</p>
@@ -83,10 +84,10 @@ function abrirCadete(id){
 function dialogoMiembro(){
   dialogo({
     titulo: 'Sumar usuario',
-    texto: 'El usuario tiene que existir en Supabase → Authentication → Users. Acá le das acceso a tu negocio con un rol.',
+    texto: 'El usuario tiene que existir en Supabase → Authentication → Users. Si ya había cargado datos por su cuenta (clientes, pagos, pedidos…), se pasan a este negocio y quedan a la vista de todos.',
     html: `<div class="field"><label for="f-m-email">Email del usuario${REQ}</label><input type="email" id="f-m-email" autofocus></div>
       <div class="field"><label for="f-m-nombre">Nombre (opcional)</label><input type="text" id="f-m-nombre"></div>
-      <div class="frow"><div class="field"><label for="f-m-rol">Rol</label><select id="f-m-rol"><option value="ayudante">Ayudante</option><option value="cadete">Cadete</option></select></div>
+      <div class="frow"><div class="field"><label for="f-m-rol">Rol</label><select id="f-m-rol"><option value="dueno">Dueño (puede todo)</option><option value="ayudante">Ayudante</option><option value="cadete">Cadete</option></select></div>
         <div class="field hidden" id="grupo-m-cadete"><label for="f-m-cadete">¿Qué cadete es?</label><select id="f-m-cadete">
           ${state.cadetes.map(k => `<option value="${k.id}">${esc(k.nombre)}</option>`).join('') || '<option value="">Primero creá el cadete</option>'}</select></div></div>`,
     botones: [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Dar acceso', clase: 'primary' }],
@@ -100,9 +101,13 @@ function dialogoMiembro(){
     const el = r.el, rol = el.querySelector('#f-m-rol').value;
     try{
       const m = await agregarMiembro(el.querySelector('#f-m-email').value.trim(), rol, el.querySelector('#f-m-nombre').value.trim(), rol === 'cadete' ? el.querySelector('#f-m-cadete').value : null);
-      toast(`<b>${esc(m.email)}</b> ya puede entrar como ${ROL_LABEL[m.rol].toLowerCase()}.`);
-      refrescar();
-    }catch(e){ toastError('No se pudo dar acceso', e); }
+      await cargarDatos();   // si traía datos propios, ya son del negocio
+      toast(`<b>${esc(m.email)}</b> ya es parte del negocio como ${ROL_LABEL[m.rol].toLowerCase()}. Si tenía datos propios, ya están acá; que vuelva a entrar a la app.`);
+      renderMenu(); refrescar();
+    }catch(e){
+      if(/Rol inválido|propio negocio cargado/i.test(e.message || '')) toast('Para sumar usuarios dueños o cuentas con datos propios, primero corré <b>migracion-v6.sql</b> en Supabase.', 'err', 9000);
+      else toastError('No se pudo dar acceso', e);
+    }
   });
 }
 
