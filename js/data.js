@@ -47,7 +47,8 @@ function mapCliente(r){
     cantAlmuerzo: r.cant_almuerzo ?? 1,
     cantCena: r.cant_cena ?? (r.consumo === 'almuerzo_cena' ? 1 : 0),
     cadeteId: r.cadete_id || null,
-    menuAlmuerzoId: r.menu_almuerzo_id || null, menuCenaId: r.menu_cena_id || null
+    menuAlmuerzoId: r.menu_almuerzo_id || null, menuCenaId: r.menu_cena_id || null,
+    avisoSaldoAt: r.aviso_saldo_at || null
   };
 }
 function clientePayload(c){
@@ -381,6 +382,28 @@ function clientesPorVencer(){
 function clientesSinSaldo(){
   return clientesActivos().filter(c => usaCreditos(c) && viandasPorDia(c) > 0 && saldoDe(c.id) <= 0).sort((a, b) => saldoDe(a.id) - saldoDe(b.id));
 }
+/* Packs para renovar: sin créditos, por quedarse sin, y los pausados que quedaron sin créditos. */
+function packsPorRenovar(){
+  return {
+    sin: clientesSinSaldo(),
+    vencen: clientesPorVencer(),
+    pausados: state.clientes.filter(c => !c.activo && usaCreditos(c) && saldoDe(c.id) <= 0).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  };
+}
+// "Avisado hoy", "Avisado ayer", "Avisado el lun 29" o "Sin avisar"
+function textoAviso(c){
+  if(!c.avisoSaldoAt) return 'Sin avisar';
+  const f = isoLocal(new Date(c.avisoSaldoAt)), n = nombreDia(f);
+  return n === 'Hoy' ? 'Avisado hoy' : n === 'Ayer' ? 'Avisado ayer' : `Avisado el ${n.toLowerCase()}`;
+}
+/* Anota que se le avisó por WhatsApp (desde la v9 de la base). */
+async function marcarAvisoSaldo(c){
+  if(state.versionBase < 9) return;
+  const { data, error } = await sb.rpc('marcar_aviso_saldo', { cid: c.id });
+  if(error) throw error;
+  c.avisoSaldoAt = data;
+}
+
 // sanatorios y empresas que deben viandas (se cobran a fin de semana)
 function clientesQueDeben(){
   return state.clientes.filter(c => modoPago(c) === 'cuenta' && saldoDe(c.id) < 0).sort((a, b) => saldoDe(a.id) - saldoDe(b.id));
@@ -666,6 +689,7 @@ async function registrarPago(c, { viandas, monto, nota, fecha }){
   if(error) throw error;
   const s = state.saldos[c.id] || (state.saldos[c.id] = { pagado: 0, consumido: 0, saldo: 0 });
   s.pagado += viandas; s.saldo += viandas;
+  if(viandas > 0) c.avisoSaldoAt = null;   // la base también lo borra (v9)
   return data;
 }
 /* Corrige un pago ya cargado (créditos, monto, fecha o nota) o lo borra; los créditos del cliente se recalculan. */

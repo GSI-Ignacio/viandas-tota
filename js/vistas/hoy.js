@@ -55,22 +55,34 @@ ${state.versionBase >= 7 ? `      <button class="mb nr" data-v="no_recibido" ari
   </div>`;
 }
 
+/* Pack sin créditos en Hoy: no se entrega; se renueva, se le avisa o se saltea el día. */
+function filaSinCreditoHtml(c, fecha, turno){
+  const wa = waLink(c.telefono, mensajeRecordatorio(c));
+  return `<div class="trow sincred" data-row="${c.id}" data-turno-row="${turno}">
+    <div class="t" data-abrir="${c.id}" role="button" tabindex="0" title="Ver la ficha de la entrega">
+      <div class="n">${esc(c.nombre)} <span class="tag bad">${esc(textoSaldo(c))}</span></div>
+      <div class="que"><b>${viandasTurno(c, fecha, turno)}×</b> vianda <span class="muted">· ${esc(TIPO_LABEL[c.tipo] || '')}</span></div>
+      <div class="s">${esc(textoAviso(c))}</div>
+    </div>
+    <div class="acts">
+      ${esDueno() ? `<button class="btn primary" type="button" data-ren-renovar="${c.id}">${icon('pago', 13)}<span class="lbl"> Renovar</span></button>` : ''}
+      ${wa ? `<a class="btn" href="${wa}" target="_blank" rel="noopener" data-ren-avisar="${c.id}" title="Avisarle por WhatsApp">${icon('wa', 13)}<span class="lbl"> Avisar</span></a>` : ''}
+      <div class="meal-toggle deshacer" data-cliente="${c.id}" data-meal="${turno}"><button class="mb" data-v="saltado" title="Saltear hoy: no recibe y no usa crédito">${icon('saltear', 14)}<span class="lbl">Saltear</span></button></div>
+    </div>
+  </div>`;
+}
+
 const hoyPlegadas = new Set();   // "Ya registradas" que se plegaron a mano: se respetan al actualizar
 
 function renderHoy(bar, main){
   const hoy = todayStr();
   const r = resumenDia(hoy);
   const delDia = clientesDelDia(hoy);
-  const sinSaldo = clientesSinSaldo();
-  const sinSaldoHoy = new Set(sinSaldo.filter(c => turnosDe(c, hoy).length).map(c => c.id));
-  const porVencer = clientesPorVencer();
   const deben = clientesQueDeben();
   const necesita = necesidadProductos(hoy, { soloPendiente: true });
   const negativos = productosNegativos();
   const faltanHoy = state.productos.filter(p => p.activo && p.stock >= 0 && necesita[p.id] > p.stock);
   const bajos = productosBajos().filter(p => p.stock >= 0 && !faltanHoy.includes(p));
-  const crudo = state.perfil.nombre || (state.sesion ? state.sesion.user.email.split('@')[0].split(/[._-]/)[0] : '');
-  const nombre = crudo ? crudo.charAt(0).toUpperCase() + crudo.slice(1) : '';
   const clientesPend = delDia.filter(c => clientePendiente(c, hoy));
   const pedidos = pedidosDelDia(hoy);
   const rp = resumenPedidos(hoy);
@@ -85,16 +97,11 @@ function renderHoy(bar, main){
   const irow = (c, estado, acciones = '') => `<div class="irow click" data-cli="${c.id}">
       <div class="t"><div class="n">${esc(c.nombre)}</div>${estado}</div>
       ${acciones ? `<div class="acts">${acciones}</div>` : ''}</div>`;
-  const accionesSaldo = (c) => {
-    const wa = waLink(c.telefono, mensajeRecordatorio(c));
-    return (wa ? `<a class="btn" href="${wa}" target="_blank" rel="noopener" data-stop title="Avisarle por WhatsApp" aria-label="Avisarle por WhatsApp">${icon('wa', 13)}</a>` : '')
-      + (esDueno() ? `<button class="btn" data-pago="${c.id}" data-stop>${icon('pago', 13)} Pago</button>` : '');
-  };
 
   // cada bloque: resumen arriba, lo que falta entregar en su tarjeta y lo ya registrado en otra
   const chipsHtml = (chips) => `<div class="echips">${chips.filter(x => x.siempre || x.n).map(x =>
     `<span class="echip ${x.cls} ${x.n ? '' : 'cero'}"><i></i><b>${x.n}</b>${esc(x.label)}</span>`).join('')}</div>`;
-  const bloque = ({ titulo, id, attrs = '', chips, nPend, pendHtml, vacio, hechasTitulo, nHechas, hechasHtml, clave }) => `
+  const bloque = ({ titulo, id, attrs = '', chips, nPend, pendHtml, vacio, extraHtml, hechasTitulo, nHechas, hechasHtml, clave }) => `
     <section class="tsec bloque-dia ${id === 'hoy-pedidos' ? 'pd' : 'pk'}" style="margin-top:0;margin-bottom:26px" ${id ? `id="${id}"` : ''} ${attrs}>
       <h2>${titulo}</h2>
       ${chipsHtml(chips)}
@@ -102,6 +109,7 @@ function renderHoy(bar, main){
         <div class="lhead pend"><i></i>Falta entregar <span class="n">${nPend}</span></div>
         ${pendHtml || `<div class="calm">${icon('check')} ${vacio}</div>`}
       </div>
+      ${extraHtml || ''}
       ${nHechas ? `<details class="clist lista-dia hechas2" data-plegado="${clave}" ${hoyPlegadas.has(clave) ? '' : 'open'}>
         <summary class="lhead">${icon('chevD', 12)} ${hechasTitulo} <span class="n">${nHechas}</span></summary>
         ${hechasHtml}</details>` : ''}
@@ -110,7 +118,9 @@ function renderHoy(bar, main){
   const bloques = ['almuerzo', 'cena'].map(t => {
     const lista = delDia.filter(c => turnosDe(c, hoy).includes(t));
     if(!lista.length) return '';
-    const pend = lista.filter(c => turnoPendiente(c, hoy, t));
+    const pendTodos = lista.filter(c => turnoPendiente(c, hoy, t));
+    const sinCred = pendTodos.filter(c => !puedeEntregar(c, hoy, t));   // packs sin créditos: no se entregan
+    const pend = pendTodos.filter(c => !sinCred.includes(c));
     const hechas = lista.filter(c => !turnoPendiente(c, hoy, t));
     const estH = (c) => (getEntrega(c.id, hoy) || {})[t];
     const v = (cs) => cs.reduce((s, c) => s + viandasTurno(c, hoy, t), 0);
@@ -122,11 +132,15 @@ function renderHoy(bar, main){
       attrs: `data-turno="${t}"`,
       chips: [
         { cls: 'pend', n: v(pend), label: 'por entregar', siempre: true },
+        { cls: 'bad', n: v(sinCred), label: 'sin créditos' },
         { cls: 'ok', n: v(hechas.filter(c => estH(c) === 'entregado')), label: 'entregadas', siempre: true },
         { cls: 'nr', n: v(hechas.filter(c => estH(c) === 'no_recibido')), label: 'no las recibieron', siempre: state.versionBase >= 7 },
         { cls: 'skip', n: v(hechas.filter(c => estH(c) === 'saltado')), label: 'salteadas', siempre: true }
       ],
       nPend: plural(pend.length, 'cliente'), pendHtml: pend.map(c => filaTurnoHtml(c, hoy, t)).join(''), vacio: 'No queda nada por entregar.',
+      extraHtml: sinCred.length ? `<div class="clist lista-dia sin-cred">
+          <div class="lhead bad"><i></i>Sin créditos · no entregar <span class="n">${plural(sinCred.length, 'cliente')}</span></div>
+          ${sinCred.map(c => filaSinCreditoHtml(c, hoy, t)).join('')}</div>` : '',
       hechasTitulo: 'Ya registradas hoy', nHechas: hechas.length ? plural(hechas.length, 'cliente') : 0,
       hechasHtml: hechas.map(c => filaTurnoHtml(c, hoy, t)).join(''), clave: t
     });
@@ -148,15 +162,7 @@ function renderHoy(bar, main){
   }) : '';
 
   main.innerHTML = `<div class="page">
-    <h1 class="hello">${esc(saludo())}${nombre ? ', ' + esc(nombre.split(' ')[0]) : ''}</h1>
-    <p class="hello-sub">${!delDia.length && !pedidos.length ? 'Hoy no hay viandas programadas ni pedidos cargados.'
-      : r.pendientes || rp.pendientes ? `Faltan entregar ${[r.pendientes && `<b>${plural(r.pendientes, 'vianda')}</b> de packs`, rp.pendientes && `<b>${plural(rp.pendientes, 'pedido')}</b>`].filter(Boolean).join(' y ')}.` : 'Todo lo de hoy está registrado.'}</p>
-    ${delDia.length || pedidos.length ? `<div class="kpis">
-      <div class="kpi ${r.pendientes ? 'pack' : ''}"><b>${r.pendientes}</b><span>viandas de packs por entregar</span></div>
-      <div class="kpi ${rp.pendientes ? 'ped' : ''}"><b>${rp.pendientes}</b><span>pedidos por entregar</span></div>
-      <div class="kpi ok"><b>${r.entregadas + rp.viandasEntregadas}</b><span>entregadas hoy</span></div>
-    </div>
-    ${delDia.length ? `<div class="progress">${progresoHtml(r, { sinPendientes: true })}</div>` : ''}` : ''}
+    ${delDia.length ? `<div class="progress" style="margin-top:0">${progresoHtml(r, { sinPendientes: true })}</div>` : ''}
 
     <div class="hoy-grid">
       <div><div id="hoy-entregas">${bloques}</div>${bloquePedidos}
@@ -166,12 +172,7 @@ function renderHoy(bar, main){
 
       <aside class="hoy-aside">
         ${seccionCartaDiaHtml(hoy)}
-        ${sinSaldo.length || porVencer.length ? `<section class="tsec" id="sec-saldo">
-          <h2>${icon('alerta', 14)} Créditos</h2>
-          <div class="clist ${sinSaldo.length ? 'alert' : ''}">
-            ${sinSaldo.map(c => irow(c, `<div class="s" style="color:var(--bad-ink);font-weight:500">${esc(textoSaldo(c))}${sinSaldoHoy.has(c.id) ? ' · recibe hoy' : ''}</div>`, accionesSaldo(c))).join('')}
-            ${porVencer.map(c => { const d = diasQueCubre(c); return irow(c, `<div class="s" style="color:var(--warn-ink);font-weight:500">Quedan ${plural(saldoDe(c.id), 'crédito')}${d ? ` · alcanza ${plural(d, 'día')}` : ''}</div>`, accionesSaldo(c)); }).join('')}
-          </div></section>` : ''}
+        ${seccionRenovarHtml()}
 
         ${deben.length ? `<section class="tsec" id="sec-cobrar">
           <h2>${icon('pago', 14)} A cobrar a fin de semana <span class="n">sanatorios y empresas</span></h2>
@@ -203,6 +204,7 @@ function renderHoy(bar, main){
 
   main.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => irA(b.dataset.ir)));
   bindCartaDia(main);
+  bindRenovar(main, refrescar);
   main.querySelectorAll('[data-stop]').forEach(b => b.addEventListener('click', e => e.stopPropagation()));
   main.querySelectorAll('[data-pago]').forEach(b => b.addEventListener('click', () => dialogoPago(clientePorId(b.dataset.pago), refrescar)));
   main.querySelectorAll('.irow[data-cli]').forEach(row => row.addEventListener('click', () => { irA('clientes'); abrirCliente(row.dataset.cli); }));

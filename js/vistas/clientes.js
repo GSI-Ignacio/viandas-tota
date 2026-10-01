@@ -42,6 +42,7 @@ function renderClientes(bar, main){
       ${[['activos', 'Activos'], ['sin-saldo', 'Packs sin créditos'], ['por-vencer', 'Packs por quedarse sin créditos'], ['deben', 'Sanatorio / empresa: a cobrar'], ['pausados', 'Pausados'], ['todos', 'Todos']].map(([v, l]) =>
         `<option value="${v}" ${clienteEstado === v ? 'selected' : ''}>${l}</option>`).join('')}
     </select>
+    <button class="btn" id="ver-renovar">${icon('pago', 14)} Packs por renovar</button>
     ${esDueno() ? `<button class="btn primary" id="nuevo-cliente">${icon('plus', 14)} Nuevo cliente</button>` : ''}`;
 
   main.innerHTML = `<div class="tablewrap"><table class="ptable resp">
@@ -57,6 +58,7 @@ function renderClientes(bar, main){
   }));
   bar.querySelector('#c-estado').addEventListener('change', e => { clienteEstado = e.target.value; pintar(); });
   const nb = bar.querySelector('#nuevo-cliente'); if(nb) nb.addEventListener('click', () => abrirCliente(null));
+  bar.querySelector('#ver-renovar').addEventListener('click', () => abrirRenovaciones());
 
   function pintar(){
     const lista = filtrarClientes();
@@ -129,11 +131,11 @@ function dialogoAjusteCreditos(c, alTerminar){
 }
 
 /* ---------- diálogo para cargar un pago, o corregir uno ya cargado ---------- */
-function dialogoPago(c, alTerminar, pago){
+function dialogoPago(c, alTerminar, pago, { renovar = false } = {}){
   if(!c) return;
   const corregir = !!pago;
   dialogo({
-    titulo: corregir ? `Corregir pago · ${c.nombre}` : `Cargar pago · ${c.nombre}`,
+    titulo: corregir ? `Corregir pago · ${c.nombre}` : renovar ? `Renovar pack · ${c.nombre}` : `Cargar pago · ${c.nombre}`,
     texto: corregir
       ? `Cambiá lo que se cargó mal, o borrá el pago. Ahora tiene <b>${esc(textoSaldo(c))}</b>; los créditos se recalculan solos.`
       : modoPago(c) === 'cuenta'
@@ -145,7 +147,7 @@ function dialogoPago(c, alTerminar, pago){
       </div>
       <div class="frow">
         <div class="field"><label for="f-pago-fecha">Fecha</label><input type="date" id="f-pago-fecha" value="${corregir ? pago.fecha : todayStr()}"></div>
-        <div class="field"><label for="f-pago-nota">Nota (opcional)</label><input type="text" id="f-pago-nota" placeholder="Efectivo, transferencia…" value="${corregir ? esc(pago.nota || '') : ''}"></div>
+        <div class="field"><label for="f-pago-nota">Nota (opcional)</label><input type="text" id="f-pago-nota" placeholder="Efectivo, transferencia…" value="${corregir ? esc(pago.nota || '') : renovar ? 'Renovación' : ''}"></div>
       </div>
       ${corregir ? '' : '<p class="muted" style="font-size:13px;margin:0">¿Te equivocaste en un pago? En la ficha, en "Créditos y pagos", tocá <b>Editar</b> en ese pago, o usá <b>Ajustar créditos</b>.</p>'}`,
     botones: corregir
@@ -178,7 +180,10 @@ function dialogoPago(c, alTerminar, pago){
         toast(`Pago corregido. <b>${esc(c.nombre)}</b> tiene ${esc(textoSaldo(c))}.`);
       }else{
         await registrarPago(c, datos);
-        toast(`Pago cargado. <b>${esc(c.nombre)}</b> tiene ${esc(textoSaldo(c))}.`);
+        // si estaba pausado por falta de pago, al renovar vuelve a recibir
+        const reactivar = renovar && !c.activo && saldoDe(c.id) > 0;
+        if(reactivar) await cambiarActivo(c);
+        toast(`${renovar ? 'Pack renovado' : 'Pago cargado'}. <b>${esc(c.nombre)}</b> tiene ${esc(textoSaldo(c))}${reactivar ? ' y vuelve a recibir' : ''}.`);
       }
       renderMenu();
       if(alTerminar) alTerminar();
