@@ -25,7 +25,7 @@ function filtrarClientes(){
     if(clienteEstado === 'activos' && !c.activo) return false;
     if(clienteEstado === 'pausados' && c.activo) return false;
     if(clienteEstado === 'sin-saldo' && !(c.activo && usaCreditos(c) && saldoDe(c.id) <= 0)) return false;
-    if(clienteEstado === 'deben' && !(modoPago(c) === 'cuenta' && saldoDe(c.id) < 0)) return false;
+    if(clienteEstado === 'deben' && !(modoPago(c) === 'cuenta' && estadoSaldo(c) === 'debe')) return false;
     if(clienteEstado === 'por-vencer' && !(c.activo && estadoSaldo(c) === 'warn')) return false;
     if(q && !(c.nombre + ' ' + c.empresaNombre + ' ' + c.direccion + ' ' + c.telefono).toLowerCase().includes(q)) return false;
     return true;
@@ -46,7 +46,7 @@ function renderClientes(bar, main){
     ${esDueno() ? `<button class="btn primary" id="nuevo-cliente">${icon('plus', 14)} Nuevo cliente</button>` : ''}`;
 
   main.innerHTML = `<div class="tablewrap"><table class="ptable resp">
-      <thead><tr><th>Cliente</th><th>Dirección</th><th>Días</th><th>Lleva</th><th>Cadete</th><th class="r">Créditos</th></tr></thead>
+      <thead><tr><th>Cliente</th><th>Dirección</th><th>Días</th><th>Lleva</th><th>Cadete</th><th class="r">Saldo</th></tr></thead>
       <tbody id="c-tbody"></tbody></table></div>
     <div class="mcards" id="c-cards"></div>`;
 
@@ -261,7 +261,26 @@ function abrirCliente(id){
   const grande = modo === 'cuenta'
     ? (sv < 0 ? `<b class="debe">${-sv}</b><span>viandas a cobrar · se abonan a fin de semana</span>` : `<b class="ok">${sv}</b><span>${sv ? 'créditos a favor' : 'al día: no debe nada'}</span>`)
     : `<b class="${estadoSaldo(c || {})}">${sv}</b><span>créditos disponibles</span>`;
-  const saldoHtml = c && modo === 'sin' ? `<div class="cred-box modo-sin">
+  const kp = c && modo === 'cuenta' && state.versionBase >= 10 ? (cuentaPedidosDe(c) || { saldo: 0, platosSinPagar: 0, ultimoPago: null }) : null;
+  const saldoHtml = kp ? `<div class="cred-box modo-cuenta">
+        <div class="cred-top">
+          <div class="cred-big">${kp.saldo > 0 ? `<b class="debe">${fmtPlata(kp.saldo)}</b><span>a cobrar de pedidos · se abona a fin de semana</span>` : '<b class="ok">$ 0</b><span>al día con los pedidos</span>'}</div>
+          <div class="cred-mini">
+            <div><span>Platos sin pagar</span><b>${fmtNum(kp.platosSinPagar)}</b></div>
+            <div><span>Último pago</span><b>${kp.ultimoPago ? esc(formatFechaCorta(kp.ultimoPago)) : '—'}</b></div>
+            ${sv < 0 ? `<div><span>Viandas fijas</span><b class="debe">debe ${-sv}</b></div>` : ''}
+          </div>
+        </div>
+        <div class="pacts cred-acts">
+          ${esDueno() ? `<button class="btn lg primary" type="button" id="btn-pago-pedidos">${icon('pago', 14)} Registrar pago</button>` : ''}
+          <button class="btn lg" type="button" id="btn-resumen-semana">${icon('lista', 14)} Resumen de la semana</button>
+          ${sv < 0 && esDueno() ? `<button class="btn lg" type="button" id="btn-pago">${icon('plus', 14)} Pago de viandas fijas</button>` : ''}
+          ${waLink(c.telefono, '') ? `<a class="btn lg" href="${waLink(c.telefono, mensajeRecordatorio(c))}" target="_blank" rel="noopener" title="Avisar por WhatsApp">${icon('wa', 14)}</a>` : ''}
+          ${c.telefono ? `<a class="btn lg" href="${telLink(c.telefono)}" title="Llamar">${icon('tel', 14)}</a>` : ''}
+        </div>
+        <div class="cred-pagos-h">Pagos cargados <span class="n" id="n-pagos"></span></div>
+        <div id="c-pagos"><div class="skel" style="width:50%"></div></div>
+      </div>` : c && modo === 'sin' ? `<div class="cred-box modo-sin">
         <p class="cred-nota">${icon('info', 14)} Cliente casual: paga cada pedido y no usa créditos.</p>
         <div class="cred-pagos-h">Pagos cargados <span class="n" id="n-pagos"></span></div>
         <div id="c-pagos"><div class="skel" style="width:50%"></div></div>
@@ -309,13 +328,17 @@ function abrirCliente(id){
         <div class="field"><span class="flabel" id="lbl-dias">Días que recibe</span>
           <div class="days" role="group" aria-labelledby="lbl-dias">${DIAS_CORTOS.map((l, i) => `<label title="${DIAS_LARGOS[i]}"><input type="checkbox" name="f-dias" value="${i + 1}" ${d.dias.includes(i + 1) ? 'checked' : ''} aria-label="${DIAS_LARGOS[i]}"><span>${l}</span></label>`).join('')}</div>
           <div class="help">Con días marcados aparece solo en Hoy para entregarle sus viandas (cada una descuenta un crédito). A quien solo hace pedidos sueltos dejalo sin días.</div></div>
-        <div class="field"><label for="f-menu-almuerzo">Tipo de vianda (para la cocina)</label><select id="f-menu-almuerzo">${opcionesMenu(d.menuAlmuerzoId || d.menuCenaId)}</select>
-          <div class="help">Solo para saber qué prepararle (fit, sin TACC…). Cada vianda del pack cuenta igual: un crédito.</div></div>
+        <div class="field"><label for="f-menu-almuerzo">Menú habitual</label><select id="f-menu-almuerzo">${opcionesMenu(d.menuAlmuerzoId || d.menuCenaId)}</select>
+          <div class="help">Lo que se le prepara: se descuenta del stock en cada entrega.</div></div>
         <div class="frow">
           <div class="field"><label for="f-cant-menus">Menús por día</label><input type="number" id="f-cant-menus" min="0" step="1" value="${d.cantAlmuerzo + d.cantCena}"></div>
-          <div class="field"><label for="f-cadete">Cadete habitual</label><select id="f-cadete"><option value="">Sin asignar</option>
-            ${state.cadetes.filter(k => k.activo || k.id === d.cadeteId).map(k => `<option value="${k.id}" ${d.cadeteId === k.id ? 'selected' : ''}>${esc(k.nombre)}</option>`).join('')}</select></div>
+          ${state.versionBase >= 10 ? `<div class="field"><label for="f-precio-vianda">Precio por plato</label>
+            <input type="number" id="f-precio-vianda" min="0" step="100" value="${d.precioVianda ?? ''}" placeholder="El de la carta"></div>` : ''}
         </div>
+        <div class="help" style="margin:-4px 0 12px">Menú, cantidad y precio son lo que se propone al armar cada pedido (se cambian ahí si ese día es distinto).
+          Con días marcados, además, recibe esa cantidad fija cada día: a quien pide distinto cada día (sanatorio, empresas) dejalo sin días.</div>
+        <div class="field"><label for="f-cadete">Cadete habitual</label><select id="f-cadete"><option value="">Sin asignar</option>
+          ${state.cadetes.filter(k => k.activo || k.id === d.cadeteId).map(k => `<option value="${k.id}" ${d.cadeteId === k.id ? 'selected' : ''}>${esc(k.nombre)}</option>`).join('')}</select></div>
         ${ubicacionFormHtml('f', d)}
         <div class="field" style="margin-top:12px"><label for="f-referencia">Referencia para el cadete</label><input type="text" id="f-referencia" value="${esc(d.referencia)}" placeholder="Piso, depto, portón verde…"></div>
       </div>
@@ -341,6 +364,10 @@ function abrirCliente(id){
       el.querySelector('#cancelar-modal').addEventListener('click', () => cerrarPanel());
       const bp = el.querySelector('#btn-pago');
       if(bp) bp.addEventListener('click', () => dialogoPago(c, () => { refrescar(); abrirCliente(c.id); }));
+      const bpp = el.querySelector('#btn-pago-pedidos');
+      if(bpp) bpp.addEventListener('click', () => dialogoPagoPedidos(c, () => { refrescar(); abrirCliente(c.id); }));
+      const brs = el.querySelector('#btn-resumen-semana');
+      if(brs) brs.addEventListener('click', () => abrirResumenSemana(c));
       const ba = el.querySelector('#btn-ajustar');
       if(ba) ba.addEventListener('click', () => dialogoAjusteCreditos(c, () => { refrescar(); abrirCliente(c.id); }));
       el.querySelector('#guardar-cliente').addEventListener('click', async (ev) => {
@@ -357,7 +384,8 @@ function abrirCliente(id){
           cantCena: 0,
           cadeteId: el.querySelector('#f-cadete').value || null,
           menuAlmuerzoId: el.querySelector('#f-menu-almuerzo').value || null,
-          menuCenaId: null
+          menuCenaId: null,
+          precioVianda: el.querySelector('#f-precio-vianda') && el.querySelector('#f-precio-vianda').value !== '' ? Number(el.querySelector('#f-precio-vianda').value) : null
         };
         const b = ev.currentTarget; b.disabled = true;
         try{
@@ -394,10 +422,10 @@ async function cargarHistorialCliente(el, c){
       el.querySelector('#n-pagos').textContent = pagos.length || '';
       const corrige = esDueno();   // el dueño corrige o borra cada pago desde acá
       const listo = () => { refrescar(); abrirCliente(c.id); };
-      cp.innerHTML = pagos.length ? `<div class="pagos-lista">${pagos.map(p => `<div class="pago-row">
-          <span class="v ${p.viandas < 0 ? 'bad' : 'ok'}">${p.viandas > 0 ? '+' : ''}${p.viandas}</span>
+      cp.innerHTML = pagos.length ? `<div class="pagos-lista">${pagos.map(p => `<div class="pago-row ${p.concepto === 'pedidos' ? 'plata' : ''}">
+          ${p.concepto === 'pedidos' ? `<span class="v ok">${fmtPlata(p.monto)}</span>` : `<span class="v ${p.viandas < 0 ? 'bad' : 'ok'}">${p.viandas > 0 ? '+' : ''}${p.viandas}</span>`}
           <div class="t"><div class="n">${esc(p.nota || 'Pago')}</div><div class="s">${formatFechaCorta(p.fecha)}${p.monto != null ? ` · <b>${fmtPlata(p.monto)}</b>` : ''}</div></div>
-          ${corrige ? `<div class="acts"><button class="btn" type="button" data-pago-editar="${p.id}" title="Corregir este pago">${icon('editar', 13)} Editar</button>
+          ${corrige ? `<div class="acts">${p.concepto === 'pedidos' ? '' : `<button class="btn" type="button" data-pago-editar="${p.id}" title="Corregir este pago">${icon('editar', 13)} Editar</button>`}
             <button class="btn quiet danger" type="button" data-pago-borrar="${p.id}" title="Borrar este pago" aria-label="Borrar este pago">${icon('borrar', 13)}</button></div>` : ''}</div>`).join('')}</div>`
         : '<div class="muted" style="font-size:13px">Todavía no tiene pagos cargados.</div>';
       if(corrige){
@@ -431,7 +459,7 @@ function abrirClienteLectura(c){
     titulo: `${icon('clientes', 14)} Cliente`,
     html: `<h2 class="ptitle">${esc(c.nombre)}</h2><p class="psub">${tipoTag(c)} ${c.activo ? '' : '<span class="tag plain">Pausado</span>'}</p>
       <dl class="props">
-        <dt>Créditos</dt><dd><span class="saldo ${estadoSaldo(c)}">${esc(textoSaldo(c))}</span> <span class="muted">· cubre ${plural(diasQueCubre(c), 'día')}</span></dd>
+        <dt>${modoPago(c) === 'cuenta' ? 'Cuenta' : 'Créditos'}</dt><dd><span class="saldo ${estadoSaldo(c)}">${esc(textoSaldo(c))}</span>${usaCreditos(c) ? ` <span class="muted">· cubre ${plural(diasQueCubre(c), 'día')}</span>` : ''}</dd>
         <dt>Dirección</dt><dd>${c.direccion ? esc(c.direccion) : '<span class="muted">Sin dirección</span>'}</dd>
         ${c.referencia ? `<dt>Referencia</dt><dd>${esc(c.referencia)}</dd>` : ''}
         <dt>Días</dt><dd>${daychipsHtml(c.dias)}</dd>

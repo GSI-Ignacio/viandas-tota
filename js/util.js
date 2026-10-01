@@ -471,6 +471,7 @@ function sincronizarSelect(sel){
   const lab = sel.id && document.querySelector(`label[for="${CSS.escape(sel.id)}"]`);
   btn.setAttribute('aria-label', sel.getAttribute('aria-label') || (lab ? lab.textContent.trim() : ''));
   const o = sel.options[sel.selectedIndex];
+  btn.classList.toggle('sel-ph', !!(o && o.hidden));   // opción "Elegí…" todavía sin elegir
   btn.innerHTML = `<span class="sel-txt">${esc(o ? o.textContent.trim() : '')}</span>${icon('chevD', 14)}`;
 }
 

@@ -168,17 +168,31 @@ function renderComandas(bar, main){
 
 /* Menús agrupados por categoría de la carta, con su precio. Si ese día tiene menú del día, esos platos van primero. */
 function opcionesMenu(sel, fecha){
-  const delDia = fecha ? menusDelDia(fecha).filter(m => m.activo || m.id === sel) : [];
+  // solo aparecen los menús disponibles (activos y con stock); el ya elegido se mantiene aunque no haya
+  const ok = (m) => menuDisponible(m) || m.id === sel;
+  const delDia = fecha ? menusDelDia(fecha).filter(ok) : [];
   const idsDia = new Set(delDia.map(m => m.id));
-  const activos = state.menus.filter(m => (m.activo || m.id === sel) && !idsDia.has(m.id));
+  const activos = state.menus.filter(m => ok(m) && !idsDia.has(m.id));
   const cats = [...new Set(activos.map(m => m.categoria || ''))];
-  const opc = m => `<option value="${m.id}" ${m.id === sel ? 'selected' : ''}>${esc(m.nombre)}${m.precio != null ? ' · ' + fmtPlata(m.precio) : ''}${m.activo ? '' : ' (inactivo)'}</option>`;
+  const quedan = (m) => { const t = textoDisponible(m); return t ? ' · ' + t : ''; };
+  const opc = m => `<option value="${m.id}" ${m.id === sel ? 'selected' : ''}>${esc(m.nombre)}${m.precio != null ? ' · ' + fmtPlata(m.precio) : ''}${m.activo ? quedan(m) : ' (inactivo)'}</option>`;
   const agrupar = cats.length > 1 || delDia.length > 0;
-  return (delDia.length ? `<optgroup label="${esc(etiquetaMenuDia(fecha))}">${delDia.map(opc).join('')}</optgroup>` : '')
+  return (sel === ELEGIR ? `<option value="${ELEGIR}" selected hidden>Elegí un plato…</option>` : '')
+    + (delDia.length ? `<optgroup label="${esc(etiquetaMenuDia(fecha))}">${delDia.map(opc).join('')}</optgroup>` : '')
     + cats.map(cat => { const ms = activos.filter(m => (m.categoria || '') === cat).map(opc).join('');
       return agrupar ? `<optgroup label="${esc(cat || 'Otros platos')}">${ms}</optgroup>` : ms; }).join('')
     + `<option value="" ${!sel ? 'selected' : ''}>Vianda sin menú</option>`;
 }
+const ELEGIR = '__elegir';   // línea nueva sin plato elegido todavía
+/* ¿El cliente tiene valores por defecto para sus pedidos? (menú habitual, precio propio o más de un menú por día) */
+const tieneDefaults = (c) => !!c && (!!menuPorId(c.menuAlmuerzoId) || c.precioVianda != null || c.cantAlmuerzo > 1);
+/* La línea que se carga sola al elegir un cliente con valores por defecto. */
+function lineaPorDefecto(c){
+  const hab = menuPorId(c.menuAlmuerzoId);
+  return { menuId: hab && menuDisponible(hab) ? hab.id : ELEGIR, guarnicionId: null, cantidad: cantidadPorDefecto(c), nota: '' };
+}
+/* Cantidad que se propone en un pedido nuevo: los "menús por día" del cliente (al menos 1). */
+const cantidadPorDefecto = (c) => Math.max(1, (c && c.cantAlmuerzo) || 1);
 /* Guarniciones: las del día si se eligieron; si no, todas. */
 function opcionesGuarnicion(sel, fecha){
   const delDia = fecha ? guarnicionesDelDia(fecha) : [];
@@ -188,12 +202,16 @@ function opcionesGuarnicion(sel, fecha){
   return `<option value="">Guarnición…</option>` + lista
     .map(p => `<option value="${p.id}" ${p.id === sel ? 'selected' : ''}>${esc(p.nombre)}${p === actual && delDia.length ? ' (no está en el menú del día)' : ''}</option>`).join('');
 }
-function lineaComandaHtml(l, i, fecha){
+function lineaComandaHtml(l, i, fecha, cli){
   const m = menuPorId(l.menuId);
+  // el precio sale del cliente (precio propio) o de la carta, y se puede cambiar en cada plato
+  const def = precioPara(cli, l.menuId), val = l.precio != null ? l.precio : def;
+  const auto = l.precio == null || l.precio === def;
   return `<div class="cline cline-com" data-i="${i}">
     <select class="inp" data-campo="menu" aria-label="Menú">${opcionesMenu(l.menuId, fecha)}</select>
     <select class="inp ${m && m.llevaGuarnicion ? '' : 'hidden'}" data-campo="guarnicion" aria-label="Guarnición">${opcionesGuarnicion(l.guarnicionId, fecha)}</select>
     <input type="number" class="inp" data-campo="cantidad" min="1" step="1" value="${l.cantidad}" aria-label="Cantidad">
+    <input type="number" class="inp" data-campo="precio" min="0" step="100" value="${val ?? ''}" placeholder="$" aria-label="Precio por plato" title="Precio por plato" data-auto="${auto ? 1 : 0}">
     <input type="text" class="inp" data-campo="nota" value="${esc(l.nota || '')}" placeholder="Nota (sin sal, dieta…)" aria-label="Nota">
     <button class="iconbtn" type="button" data-quitar-linea="${i}" aria-label="Quitar" title="Quitar">${icon('x', 14)}</button></div>`;
 }
@@ -205,8 +223,8 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
   const entregado = !!(ped && ped.estado === 'entregada');
   const editable = puedeEditarComandas(fecha) && !entregado;
   let lineas;
-  if(ped) lineas = ped.lineas.map(x => ({ menuId: x.menuId, guarnicionId: x.guarnicionId, cantidad: x.cantidad, nota: x.nota }));
-  else { const m = menusDelDia(fecha).find(x => x.activo) || state.menus.find(x => x.activo); lineas = [{ menuId: m ? m.id : null, guarnicionId: null, cantidad: 1, nota: '' }]; }
+  if(ped) lineas = ped.lineas.map(x => ({ menuId: x.menuId, guarnicionId: x.guarnicionId, cantidad: x.cantidad, nota: x.nota, precio: x.precio }));
+  else lineas = tieneDefaults(c) ? [lineaPorDefecto(c)] : [];
 
   const clientesOpc = clientesActivos().map(x => `<option value="${x.id}">${esc(x.nombre)}${x.tipo === 'empresa' && x.empresaNombre ? ' · ' + esc(x.empresaNombre) : ''}</option>`).join('');
   abrirPanel({
@@ -223,7 +241,12 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
       ${entregado ? `<div class="banner" style="border-radius:9px;border:1px solid var(--line);margin-bottom:12px">${icon('info', 14)} Ya se entregó y se descontó del stock. Para cambiarlo, volvelo a pendiente.
           ${puedeEditarComandas(fecha) ? '<button class="btn quiet" id="com-reabrir">Volver a pendiente</button>' : ''}</div>` : ''}
       <div class="psec" style="margin-top:${nueva ? 6 : 12}px"><h3>Platos${REQ} <span class="sp"></span><span class="n" id="com-total"></span></h3>
-        <div id="com-lineas">${lineas.map((l, i) => lineaComandaHtml(l, i, fecha)).join('')}</div>
+        ${editable ? `<div class="com-tools">
+          <button class="btn" type="button" id="com-repetir" title="Copiar el último pedido de este cliente">${icon('deshacer', 13)} Repetir el último pedido</button>
+        </div>` : ''}
+        <div class="com-precio muted" id="com-precio-hint"></div>
+        <div id="com-lineas">${lineas.map((l, i) => lineaComandaHtml(l, i, fecha, c)).join('')}</div>
+        <p class="muted com-vacio" id="com-vacio">${nueva ? 'Elegí el cliente: si tiene menú habitual, cantidad o precio, se cargan solos. Si no, agregá los platos.' : 'Agregá los platos del pedido.'}</p>
         ${editable ? `<button class="btn" type="button" id="com-agregar" style="margin-top:8px">${icon('plus', 13)} Agregar plato</button>` : ''}
         ${!state.menus.length ? `<p class="muted" style="font-size:13px;margin-top:10px">Todavía no hay menús en la carta. ${esDueno() ? 'Cargalos en Stock → Menús (podés pegar la carta de WhatsApp).' : ''}</p>` : ''}
       </div>
@@ -236,21 +259,62 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
         menuId: r.querySelector('[data-campo="menu"]').value || null,
         guarnicionId: r.querySelector('[data-campo="guarnicion"]').value || null,
         cantidad: Math.trunc(Number(r.querySelector('[data-campo="cantidad"]').value) || 0),
-        nota: r.querySelector('[data-campo="nota"]').value.trim()
+        nota: r.querySelector('[data-campo="nota"]').value.trim(),
+        precio: r.querySelector('[data-campo="precio"]').value === '' ? null : Number(r.querySelector('[data-campo="precio"]').value)
       }));
       const clienteActual = () => nueva ? clientePorId(el.querySelector('#f-com-cliente').value) : c;
       const actualizar = () => {
+        const cli = clienteActual();
+        // los precios que no se tocaron a mano siguen al cliente y al plato elegido
+        cont.querySelectorAll('.cline').forEach(r => {
+          const pi = r.querySelector('[data-campo="precio"]');
+          if(pi.dataset.auto === '1'){ const d = precioPara(cli, r.querySelector('[data-campo="menu"]').value || null); pi.value = d ?? ''; }
+        });
         const ls = leer();
         const tot = ls.reduce((s, l) => s + Math.max(l.cantidad, 0), 0);
-        const valor = valorLineas(ls.filter(l => l.cantidad > 0));
+        const conPlatos = ls.filter(l => l.cantidad > 0);
+        const valor = conPlatos.some(l => l.precio == null) ? null : conPlatos.reduce((s, l) => s + l.precio * l.cantidad, 0);
         el.querySelector('#com-total').textContent = plural(tot, 'plato') + (valor != null && tot ? ' · ' + fmtPlata(valor) : '');
+        el.querySelector('#com-vacio').hidden = cont.children.length > 0;
+        const hint = el.querySelector('#com-precio-hint');
+        if(hint) hint.textContent = cli && cli.precioVianda != null ? `Precio de ${cli.nombre}: ${fmtPlata(cli.precioVianda)} por plato. Se puede cambiar en cada plato.` : '';
         cont.querySelectorAll('.cline').forEach(r => { const m = menuPorId(r.querySelector('[data-campo="menu"]').value); r.querySelector('[data-campo="guarnicion"]').classList.toggle('hidden', !(m && m.llevaGuarnicion)); });
       };
       const bind = () => {
         cont.querySelectorAll('input,select').forEach(x => { x.disabled = !editable; x.addEventListener('input', actualizar); x.addEventListener('change', actualizar); });
         cont.querySelectorAll('[data-quitar-linea]').forEach(b => { b.hidden = !editable; b.addEventListener('click', () => { b.closest('.cline').remove(); actualizar(); }); });
       };
+      // un precio escrito a mano queda fijo (se marca antes de que se recalcule el total)
+      cont.addEventListener('input', e => { if(e.target.matches('[data-campo="precio"]')) e.target.dataset.auto = '0'; }, true);
+      cont.addEventListener('change', e => { const f = e.target.closest('.cline'); if(f) f.dataset.tocado = '1'; }, true);
       bind(); actualizar();
+      // pedido nuevo: al elegir el cliente se traen sus valores por defecto
+      const selCli = nueva && el.querySelector('#f-com-cliente');
+      if(selCli) selCli.addEventListener('change', () => {
+        const cli = clienteActual();
+        // si no se tocó nada todavía: se cargan sus valores por defecto, o queda vacío
+        const filas = [...cont.querySelectorAll('.cline')];
+        if(filas.every(f => !f.dataset.tocado)){
+          cont.innerHTML = cli && tieneDefaults(cli) ? lineaComandaHtml(lineaPorDefecto(cli), 0, fechaElegida(), cli) : '';
+          bind();
+        }
+        actualizar();
+      });
+      // repetir el último pedido del cliente: se copian los platos para ajustar lo que cambie
+      const rp = el.querySelector('#com-repetir');
+      if(rp) rp.addEventListener('click', async () => {
+        const cli = clienteActual();
+        if(!cli){ marcarFalta(el.querySelector('#f-com-cliente'), 'Elegí primero el cliente.'); return; }
+        rp.classList.add('busy');
+        try{
+          const u = await ultimoPedido(cli, fechaElegida(), !ped);
+          if(!u){ toast(`${esc(cli.nombre)} todavía no tiene pedidos anteriores.`, 'info'); return; }
+          cont.innerHTML = u.lineas.map((l, i) => lineaComandaHtml({ menuId: l.menuId, guarnicionId: l.guarnicionId, cantidad: l.cantidad, nota: l.nota, precio: l.precio }, i, fechaElegida(), cli)).join('');
+          bind(); actualizar();
+          toast(`Copiado el pedido ${u.fecha === todayStr() ? 'de hoy' : `del ${esc(formatFechaMedia(u.fecha))}`}: ajustá lo que cambie y guardá.`);
+        }catch(e){ toastError('No se pudo traer el último pedido', e); }
+        finally{ rp.classList.remove('busy'); }
+      });
       const ag = el.querySelector('#com-agregar');
       const fechaElegida = () => (nueva && el.querySelector('#f-com-fecha') && el.querySelector('#f-com-fecha').value) || fecha;
       // al cambiar la fecha de un pedido nuevo, las listas pasan a mostrar el menú de ese día
@@ -268,8 +332,8 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
       });
       if(ag) ag.addEventListener('click', () => {
         const fch = fechaElegida();
-        const m = menusDelDia(fch).find(x => x.activo) || state.menus.find(x => x.activo);
-        cont.insertAdjacentHTML('beforeend', lineaComandaHtml({ menuId: m ? m.id : null, guarnicionId: null, cantidad: 1, nota: '' }, cont.children.length, fch));
+        const cli = clienteActual(), primera = !cont.children.length;
+        cont.insertAdjacentHTML('beforeend', lineaComandaHtml({ menuId: ELEGIR, guarnicionId: null, cantidad: primera && cli ? cantidadPorDefecto(cli) : 1, nota: '' }, cont.children.length, fch, cli));
         bind(); actualizar();
         const ultimo = cont.lastElementChild.querySelector('select'); if(ultimo) ultimo.focus();
       });
@@ -302,6 +366,8 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
         const fch = nueva ? (el.querySelector('#f-com-fecha').value || fecha) : fecha;
         const ls = leer().filter(l => l.cantidad > 0);
         if(!ls.length){ marcarFalta(cont.querySelector('[data-campo="cantidad"]') || el.querySelector('#com-agregar'), 'Agregá al menos un plato con cantidad.'); return; }
+        const sinPlato = [...cont.querySelectorAll('.cline')].find(r => r.querySelector('[data-campo="menu"]').value === ELEGIR && (Number(r.querySelector('[data-campo="cantidad"]').value) || 0) > 0);
+        if(sinPlato){ marcarFalta(sinPlato.querySelector('[data-campo="menu"]'), 'Elegí el plato.'); return; }
         const filaSinG = [...cont.querySelectorAll('.cline')].find(r => {
           const m = menuPorId(r.querySelector('[data-campo="menu"]').value);
           return (Number(r.querySelector('[data-campo="cantidad"]').value) || 0) > 0 && m && m.llevaGuarnicion && !r.querySelector('[data-campo="guarnicion"]').value && guarniciones().length;

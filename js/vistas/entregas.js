@@ -117,7 +117,7 @@ function abrirFichaEntrega(c, fecha){
         ${pedidoDe(c.id, fecha) ? `<dt>Pedido</dt><dd>${esc(textoMenus(c, fecha))} ${estadoPedidoTag(pedidoDe(c.id, fecha))}
           ${puedeEditarComandas(fecha) ? `<button class="btn quiet" data-editar-comanda="almuerzo">${icon('editar', 12)} Ver</button>` : ''}</dd>` : ''}
         <dt>Cadete</dt><dd>${k ? `<span class="dot" style="--c:${k.color}"></span>${esc(k.nombre)}` : '<span class="muted">Sin asignar</span>'}</dd>
-        ${!esCadete() ? `<dt>Créditos</dt><dd><span class="saldo ${estadoSaldo(c)}">${esc(textoSaldo(c))}</span></dd>` : ''}
+        ${!esCadete() ? `<dt>${modoPago(c) === 'cuenta' ? 'Cuenta' : 'Créditos'}</dt><dd><span class="saldo ${estadoSaldo(c)}">${esc(textoSaldo(c))}</span></dd>` : ''}
         ${c.telefono ? `<dt>Teléfono</dt><dd>${esc(c.telefono)}</dd>` : ''}
         ${c.notas ? `<dt>Notas</dt><dd>${esc(c.notas)}</dd>` : ''}
       </dl>

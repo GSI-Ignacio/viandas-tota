@@ -55,7 +55,7 @@ async function abrirCartaDia(fecha){
   }
   const edita = puedeElegirCartaDia(fecha);
   const elegidos = new Set(state.cartaDia.filter(x => x.fecha === fecha).map(x => x.menuId ? 'm' + x.menuId : 'g' + x.guarnicionId));
-  const platos = state.menus.filter(m => m.activo || elegidos.has('m' + m.id));
+  const platos = state.menus.filter(m => menuDisponible(m) || elegidos.has('m' + m.id));
   const cats = [...new Set(platos.map(m => m.categoria || 'Sin categoría'))];
   const gs = state.productos.filter(p => p.esGuarnicion && (p.activo || elegidos.has('g' + p.id)));
   const anterior = [...new Set(state.cartaDia.map(x => x.fecha))].filter(f => f < fecha).sort().pop();
@@ -80,7 +80,7 @@ async function abrirCartaDia(fecha){
           <p class="muted md-ayuda">Tildá los platos que salen este día. Al cargar un pedido aparecen primero.</p>
           ${platos.length > 10 ? '<input type="search" class="inp sm search-inp" id="md-buscar" placeholder="Buscar plato…" aria-label="Buscar plato" style="margin-bottom:6px">' : ''}
           <div class="md-ops" id="md-platos">${platos.length ? cats.map(cat => `<div class="md-cat">${esc(cat)}</div>`
-              + platos.filter(m => (m.categoria || 'Sin categoría') === cat).map(m => fila('m' + m.id, m.nombre, fmtPlata(m.precio))).join('')).join('')
+              + platos.filter(m => (m.categoria || 'Sin categoría') === cat).map(m => fila('m' + m.id, m.nombre, [fmtPlata(m.precio), textoDisponible(m)].filter(Boolean).join(' · '))).join('')).join('')
             : '<p class="muted" style="margin:6px 2px">Todavía no hay platos en la carta.</p>'}</div>
           ${nuevo ? `<div class="md-nuevo">
             <input type="text" class="inp sm" id="md-nuevo-plato" placeholder="Plato nuevo (ej: Pastel de papa)" aria-label="Nombre del plato nuevo">

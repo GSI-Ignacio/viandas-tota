@@ -48,7 +48,8 @@ function mapCliente(r){
     cantCena: r.cant_cena ?? (r.consumo === 'almuerzo_cena' ? 1 : 0),
     cadeteId: r.cadete_id || null,
     menuAlmuerzoId: r.menu_almuerzo_id || null, menuCenaId: r.menu_cena_id || null,
-    avisoSaldoAt: r.aviso_saldo_at || null
+    avisoSaldoAt: r.aviso_saldo_at || null,
+    precioVianda: r.precio_vianda == null ? null : Number(r.precio_vianda)
   };
 }
 function clientePayload(c){
@@ -57,7 +58,8 @@ function clientePayload(c){
     direccion: c.direccion, referencia: c.referencia, lat: c.lat, lng: c.lng, dias: c.dias,
     cant_almuerzo: c.cantAlmuerzo, cant_cena: c.cantCena, cadete_id: c.cadeteId || null,
     menu_almuerzo_id: c.menuAlmuerzoId || null, menu_cena_id: c.menuCenaId || null,
-    consumo: c.cantCena > 0 ? 'almuerzo_cena' : 'almuerzo'      // compatibilidad con la versión anterior
+    consumo: c.cantCena > 0 ? 'almuerzo_cena' : 'almuerzo',      // compatibilidad con la versión anterior
+    ...(state.versionBase >= 10 ? { precio_vianda: c.precioVianda ?? null } : {})
   };
 }
 function mapEntrega(r){
@@ -187,6 +189,7 @@ async function cargarDatos(){
   state.comandas = {};
   guardarComandasEnEstado(comandas);
   state.cartaDia = carta.map(mapCartaDia);
+  await recargarCuentasPedidos().catch(() => { state.cuentasPedidos = {}; });
 }
 const mapCartaDia = (r) => ({ id: r.id, fecha: r.fecha, menuId: r.menu_id || null, guarnicionId: r.guarnicion_id || null });
 async function recargarCartaDia(fecha){
@@ -295,9 +298,51 @@ function textoMenus(c, fecha, turno = 'almuerzo'){
   return menusTurno(c, fecha, turno).map(x => `${x.cantidad}× ${textoLinea(x)}`).join(' · ');
 }
 /* Valor de una comanda según los precios de la carta (null si algún menú no tiene precio). */
-function valorLineas(lineas){
+/* Cuántos platos de un menú se pueden armar con el stock actual (null si el menú no tiene productos enlazados).
+   El stock ya tiene descontados los pedidos cargados. */
+function porcionesDisponibles(m){
+  if(!m || !m.items || !m.items.length) return null;
+  return Math.max(0, Math.min(...m.items.map(it => {
+    const p = state.productos.find(x => x.id === it.productoId);
+    return p && p.activo ? Math.floor(p.stock / (it.cantidad || 1)) : 0;
+  })));
+}
+/* Cómo se arma un menú con el stock:
+   'listo'  → tiene su propio producto (el plato ya armado, con el mismo nombre);
+   'piezas' → se arma con otros productos (las piezas) que hay que juntar;
+   'sin'    → no tiene productos enlazados. */
+function armadoMenu(m){
+  if(!m || !m.items || !m.items.length) return 'sin';
+  if(m.items.length === 1){ const p = state.productos.find(x => x.id === m.items[0].productoId); if(p && normalizarNombre(p.nombre) === normalizarNombre(m.nombre)) return 'listo'; }
+  return 'piezas';
+}
+/* Para un menú sin productos: la pieza del stock que aparece en su nombre ("Kipe con guarnición" → "Kipe"). */
+function piezaSugerida(m){
+  if(!m || (m.items && m.items.length)) return null;
+  const n = normalizarNombre(m.nombre);
+  return state.productos.filter(p => p.activo && !p.esGuarnicion && normalizarNombre(p.nombre) !== n && n.includes(normalizarNombre(p.nombre)))
+    .sort((a, b) => b.nombre.length - a.nombre.length)[0] || null;
+}
+// texto de disponibilidad para listas y desplegables
+function textoDisponible(m){
+  const n = porcionesDisponibles(m);
+  if(n == null) return '';
+  if(n === 0) return 'sin stock';
+  return armadoMenu(m) === 'piezas' ? `para armar (${n})` : `quedan ${n}`;
+}
+// disponible: activo y con stock (los que no descuentan stock se consideran disponibles)
+const menuDisponible = (m) => !!m && m.activo && (porcionesDisponibles(m) ?? 1) > 0;
+const menusDisponibles = () => state.menus.filter(menuDisponible);
+
+/* Precio de un plato para un cliente: su precio propio (sanatorio, empresas) o el de la carta. */
+function precioPara(c, menuId){
+  if(c && c.precioVianda != null) return c.precioVianda;
+  const m = menuPorId(menuId);
+  return m && m.precio != null ? m.precio : null;
+}
+function valorLineas(lineas, c){
   let total = 0;
-  for(const l of lineas){ const m = menuPorId(l.menuId); if(!m || m.precio == null) return null; total += m.precio * l.cantidad; }
+  for(const l of lineas){ const p = precioPara(c, l.menuId); if(p == null) return null; total += p * l.cantidad; }
   return total;
 }
 
@@ -339,7 +384,7 @@ const usaCreditos = (c) => modoPago(c) === 'prepago';
 function estadoSaldo(c){
   const s = saldoDe(c.id), modo = modoPago(c);
   if(modo === 'sin') return 'na';
-  if(modo === 'cuenta') return s < 0 ? 'debe' : 'ok';
+  if(modo === 'cuenta') return s < 0 || deudaPedidos(c) > 0 ? 'debe' : 'ok';
   if(s <= 0) return 'bad';
   if(s <= state.config.alertaViandas) return 'warn';
   return 'ok';
@@ -371,7 +416,14 @@ function diasQueCubre(c){
 function textoSaldo(c){
   const s = saldoDe(c.id), modo = modoPago(c);
   if(modo === 'sin') return 'no usa créditos';
-  if(modo === 'cuenta') return s < 0 ? `debe ${plural(-s, 'vianda')}` : s > 0 ? `${plural(s, 'crédito')} a favor` : 'al día';
+  if(modo === 'cuenta'){
+    // lo que debe de pedidos (en plata) y de viandas fijas, todo junto
+    const plata = deudaPedidos(c), partes = [];
+    if(plata > 0) partes.push(fmtPlata(plata));
+    if(s < 0) partes.push(plural(-s, 'vianda'));
+    if(partes.length) return 'debe ' + partes.join(' + ');
+    return s > 0 ? `${plural(s, 'crédito')} a favor` : 'al día';
+  }
   if(s <= 0) return s < 0 ? `debe ${plural(-s, 'crédito')}` : 'sin créditos';
   return plural(s, 'crédito');
 }
@@ -404,6 +456,47 @@ async function marcarAvisoSaldo(c){
   c.avisoSaldoAt = data;
 }
 
+/* ---------- cuenta en plata de los pedidos (sanatorio, empresas) — desde la v10 ---------- */
+async function recargarCuentasPedidos(){
+  state.cuentasPedidos = {};
+  if(state.versionBase < 10 || esCadete()) return;
+  const { data, error } = await sb.rpc('cuentas_pedidos');
+  if(error) throw error;
+  for(const r of data || []) state.cuentasPedidos[r.cliente_id] = {
+    platos: Number(r.platos), entregado: Number(r.entregado), pagado: Number(r.pagado), saldo: Number(r.saldo),
+    ultimoPago: r.ultimo_pago, platosSinPagar: Number(r.platos_sin_pagar) };
+}
+const cuentaPedidosDe = (c) => (state.cuentasPedidos || {})[c.id] || null;
+const deudaPedidos = (c) => Math.max((cuentaPedidosDe(c) || {}).saldo || 0, 0);
+// clientes a cuenta que deben plata de pedidos entregados
+const clientesDebenPedidos = () => state.clientes.filter(c => modoPago(c) === 'cuenta' && (cuentaPedidosDe(c) || {}).saldo > 0)
+  .sort((a, b) => cuentaPedidosDe(b).saldo - cuentaPedidosDe(a).saldo);
+/* Pago en plata de los pedidos (no toca los créditos). */
+async function registrarPagoPedidos(c, { monto, fecha, nota }){
+  const { error } = await sb.from('pagos').insert({ cliente_id: c.id, viandas: 0, monto: Number(monto), nota: nota || 'Pago de pedidos', fecha: fecha || todayStr(), concepto: 'pedidos' });
+  if(error) throw error;
+  await recargarCuentasPedidos();
+}
+/* El último pedido del cliente antes de una fecha (para repetirlo). */
+/* El pedido más reciente del cliente antes de esa fecha. Con mismoDia (pedido nuevo) también cuenta
+   lo que ya se le entregó ese mismo día; un pedido pendiente de ese día no, para no duplicarlo. */
+async function ultimoPedido(c, fecha, mismoDia = false){
+  const { data, error } = await sb.from('comandas').select('*').eq('cliente_id', c.id)[mismoDia ? 'lte' : 'lt']('fecha', fecha).neq('estado', 'cancelada')
+    .order('fecha', { ascending: false }).limit(80);
+  if(error) throw error;
+  const filas = (data || []).filter(x => x.fecha < fecha || x.estado === 'entregada');
+  if(!filas.length) return null;
+  const f = filas[0].fecha;
+  return { fecha: f, lineas: filas.filter(x => x.fecha === f).map(mapComanda) };
+}
+/* Los pedidos del cliente entre dos fechas, por día (para el resumen de la semana). */
+async function pedidosEntre(c, desde, hasta){
+  const filas = await traerTodo(() => sb.from('comandas').select('*').eq('cliente_id', c.id).gte('fecha', desde).lte('fecha', hasta).neq('estado', 'cancelada'));
+  const porDia = {};
+  for(const x of filas.map(mapComanda)) (porDia[x.fecha] = porDia[x.fecha] || []).push(x);
+  return porDia;
+}
+
 // sanatorios y empresas que deben viandas (se cobran a fin de semana)
 function clientesQueDeben(){
   return state.clientes.filter(c => modoPago(c) === 'cuenta' && saldoDe(c.id) < 0).sort((a, b) => saldoDe(a.id) - saldoDe(b.id));
@@ -433,6 +526,14 @@ function paradasDe(cadeteId, fecha){
 
 /* ---------- demanda y stock ---------- */
 /* Viandas que salen un día: las de los packs más las de los pedidos (sin los cancelados). */
+/* Créditos que le van a quedar al empezar ese día, si recibe todo lo programado hasta entonces. */
+function saldoProyectado(c, fecha){
+  let s = saldoDe(c.id);
+  const hoy = todayStr();
+  for(let f = hoy; f < fecha; f = sumarDias(f, 1))
+    for(const t of turnosDe(c, f)){ if(f === hoy && !turnoPendiente(c, f, t)) continue; s -= viandasTurno(c, f, t); }
+  return s;
+}
 function demandaDia(fecha){
   const packs = clientesActivos().reduce((s, c) => s + turnosDe(c, fecha).reduce((a, t) => a + viandasTurno(c, fecha, t), 0), 0);
   return packs + pedidosDelDia(fecha).filter(p => p.estado !== 'cancelada').reduce((s, p) => s + p.viandas, 0);
@@ -564,20 +665,25 @@ async function guardarComanda(c, fecha, turno, lineas){
     const g = l.menuId && menuPorId(l.menuId) && menuPorId(l.menuId).llevaGuarnicion ? (l.guarnicionId || null) : null;
     const k = clv({ menuId: l.menuId, guarnicionId: g });
     if(nuevas.has(k)){ nuevas.get(k).cantidad += l.cantidad; if(l.nota) nuevas.get(k).nota = [nuevas.get(k).nota, l.nota].filter(Boolean).join(' · '); }
-    else nuevas.set(k, { menuId: l.menuId || null, guarnicionId: g, cantidad: Math.trunc(l.cantidad), nota: (l.nota || '').trim() });
+    else nuevas.set(k, { menuId: l.menuId || null, guarnicionId: g, cantidad: Math.trunc(l.cantidad), nota: (l.nota || '').trim(),
+                         precio: l.precio != null && l.precio !== '' && !isNaN(Number(l.precio)) ? Number(l.precio) : precioPara(c, l.menuId) });
   }
   for(const a of actuales){
     const n = nuevas.get(clv(a));
     if(!n){ const { error } = await sb.from('comandas').delete().eq('id', a.id); if(error) throw error; }
-    else if(n.cantidad !== a.cantidad || n.nota !== a.nota){
-      const { error } = await sb.from('comandas').update({ cantidad: n.cantidad, nota: n.nota }).eq('id', a.id); if(error) throw error;
+    else if(n.cantidad !== a.cantidad || n.nota !== a.nota || (n.precio != null && n.precio !== a.precio)){
+      const cambio = { cantidad: n.cantidad, nota: n.nota };
+      if(n.precio != null) cambio.precio = n.precio;
+      const { error } = await sb.from('comandas').update(cambio).eq('id', a.id); if(error) throw error;
     }
   }
   const aInsertar = [...nuevas.values()].filter(n => !actuales.some(a => clv(a) === clv(n)))
-    .map(n => ({ cliente_id: c.id, fecha, turno, menu_id: n.menuId, guarnicion_id: n.guarnicionId, cantidad: n.cantidad, nota: n.nota, origen: 'manual' }));
+    .map(n => ({ cliente_id: c.id, fecha, turno, menu_id: n.menuId, guarnicion_id: n.guarnicionId, cantidad: n.cantidad, nota: n.nota, origen: 'manual',
+                 ...(n.precio != null ? { precio: n.precio } : {}) }));
   if(aInsertar.length){ const { error } = await sb.from('comandas').insert(aInsertar); if(error) throw error; }
   await recargarComandas(fecha, c.id);
   if(!esCadete()) await recargarProductos().catch(() => {});   // el pedido ya descontó su stock
+  await recargarCuentasPedidos().catch(() => {});              // y ya suma a la cuenta (sanatorio, empresas)
 }
 
 /* Vuelve a calcular lo que descuentan los pedidos pendientes de hoy en adelante
@@ -595,6 +701,7 @@ async function marcarPedido(c, fecha, estado){
   if(error) throw error;
   await recargarComandas(fecha, c.id);
   if(!esCadete()) await recargarProductos().catch(() => {});
+  await recargarCuentasPedidos().catch(() => {});
 }
 
 async function guardarMenu(id, datos){
@@ -700,12 +807,14 @@ async function editarPago(p, { viandas, monto, nota, fecha }){
   if(error) throw error;
   if(!data || !data.length) throw new Error('Solo el dueño puede corregir pagos');
   await recargarSaldos();
+  await recargarCuentasPedidos().catch(() => {});
 }
 async function borrarPago(p){
   const { data, error } = await sb.from('pagos').delete().eq('id', p.id).select();
   if(error) throw error;
   if(!data || !data.length) throw new Error('Solo el dueño puede borrar pagos');
   await recargarSaldos();
+  await recargarCuentasPedidos().catch(() => {});
 }
 async function listarPagos(clienteId){
   const { data, error } = await sb.from('pagos').select('*').eq('cliente_id', clienteId).order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(40);

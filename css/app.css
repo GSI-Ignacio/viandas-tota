@@ -216,6 +216,8 @@ svg{display:block;flex:none}
 .sel-btn{display:inline-flex;align-items:center;gap:8px;padding:0 8px 0 10px;text-align:left;cursor:pointer;min-width:0}
 .sel-btn:hover:not(:disabled){border-color:color-mix(in srgb,var(--text) 22%,transparent)}
 .sel-btn:disabled{opacity:.55;cursor:default}
+.sel-btn.sel-ph .sel-txt{color:var(--text-3)}
+.com-vacio{font-size:13px;margin:4px 2px 0}
 .sel-btn .sel-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sel-btn svg{flex:none;color:var(--text-3);transition:transform var(--t-fast) linear}
 .sel-btn[aria-expanded="true"] svg{transform:rotate(180deg)}
@@ -959,4 +961,46 @@ body{background:radial-gradient(1000px 520px at 8% -10%,var(--glow),transparent 
 @media (max-width:640px){
   .ren-row .acts .lbl,.trow.sincred .acts .lbl{display:none}
   .trow.sincred .acts{margin-left:auto}
+}
+
+/* ---------- entrega de un día (próximos días) ---------- */
+.flist .fl.click{cursor:pointer;transition:background-color var(--t-fast) ease}
+.flist .fl.click:hover{background:var(--hover)}
+.flist .fl.click svg{color:var(--text-4)}
+.dia-row{display:flex;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid var(--line);cursor:pointer}
+.dia-row:first-child{border-top:0}
+.dia-row:hover{background:var(--hover)}
+.dia-row .t{flex:1;min-width:0}
+.dia-row .t .n{font-weight:500}
+.dia-row .t .s{font-size:13px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dia-plata{font-variant-numeric:tabular-nums;white-space:nowrap}
+.dia-menu{display:flex;align-items:center;gap:8px;margin:2px 0 0;font-size:14px;color:var(--text-2)}
+.dia-menu svg{color:var(--accent)}
+.echip.pk i{background:var(--pack)} .echip.pd i{background:var(--accent)}
+.echip.pk:not(.cero){background:color-mix(in srgb,var(--pack) 18%,var(--panel-2));border-color:color-mix(in srgb,var(--pack) 55%,transparent);color:var(--pack-ink)}
+.echip.pd:not(.cero){background:color-mix(in srgb,var(--accent) 18%,var(--panel-2));border-color:color-mix(in srgb,var(--accent) 55%,transparent);color:var(--accent-ink)}
+.echip.bad{background:color-mix(in srgb,var(--bad) 18%,var(--panel-2));border-color:color-mix(in srgb,var(--bad) 50%,transparent);color:var(--bad-ink)} .echip.bad i{background:var(--bad)}
+
+/* ---------- pedido: precio por plato y repetir ---------- */
+.cline.cline-com{grid-template-columns:minmax(0,1.5fr) minmax(0,.9fr) 64px 92px minmax(0,1fr) 34px}
+.cline.cline-com:has([data-campo="guarnicion"].hidden){grid-template-columns:minmax(0,1.5fr) 64px 92px minmax(0,1fr) 34px}
+.com-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px}
+.com-precio{font-size:13px;margin:-2px 0 8px}
+.com-precio:empty{display:none}
+.pago-row.plata .v{min-width:86px;font-size:15px}
+.cred-ped{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel)}
+.cred-ped .cp-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.cred-ped .cp-top span{font-size:13px;color:var(--text-3)}
+.cred-ped .cp-top b{font-size:20px;font-weight:600}
+.cred-ped .cp-top b.debe{color:var(--skip-ink)} .cred-ped .cp-top b.ok{color:var(--ok-ink)}
+.cred-ped .s{font-size:12.5px;color:var(--text-4);margin-top:2px}
+.ptable tfoot td{border-top:1px solid var(--line-2);border-bottom:0;height:44px}
+@media (max-width:640px){
+  .cline.cline-com,.cline.cline-com:has([data-campo="guarnicion"].hidden){grid-template-columns:minmax(0,1fr) 60px 84px 34px}
+  .cline.cline-com [data-campo="menu"],.cline.cline-com [data-campo="menu"] + .sel-btn{grid-column:1;grid-row:1}
+  .cline.cline-com [data-campo="cantidad"]{grid-column:2;grid-row:1}
+  .cline.cline-com [data-campo="precio"]{grid-column:3;grid-row:1}
+  .cline.cline-com [data-quitar-linea]{grid-column:4;grid-row:1}
+  .cline.cline-com [data-campo="guarnicion"],.cline.cline-com [data-campo="guarnicion"] + .sel-btn{grid-column:1 / -1;grid-row:2}
+  .cline.cline-com [data-campo="nota"]{grid-column:1 / -1;grid-row:3}
 }

@@ -78,7 +78,8 @@ function renderHoy(bar, main){
   const hoy = todayStr();
   const r = resumenDia(hoy);
   const delDia = clientesDelDia(hoy);
-  const deben = clientesQueDeben();
+  // a cuenta: lo que deben en viandas fijas y en plata de pedidos (v10)
+  const deben = [...new Set([...clientesQueDeben(), ...clientesDebenPedidos()])];
   const necesita = necesidadProductos(hoy, { soloPendiente: true });
   const negativos = productosNegativos();
   const faltanHoy = state.productos.filter(p => p.activo && p.stock >= 0 && necesita[p.id] > p.stock);
@@ -177,7 +178,13 @@ function renderHoy(bar, main){
         ${deben.length ? `<section class="tsec" id="sec-cobrar">
           <h2>${icon('pago', 14)} A cobrar a fin de semana <span class="n">sanatorios y empresas</span></h2>
           <div class="clist debe">
-            ${deben.map(c => irow(c, `<div class="s" style="color:var(--skip-ink);font-weight:500">Debe ${plural(-saldoDe(c.id), 'vianda')}</div>`, esDueno() ? `<button class="btn" data-pago="${c.id}" data-stop>${icon('pago', 13)} Pago</button>` : '')).join('')}
+            ${deben.map(c => {
+              const k = cuentaPedidosDe(c), debePed = k && k.saldo > 0, debeV = saldoDe(c.id) < 0;
+              const txt = [debePed && textoCuentaPedidos(c), debeV && `debe ${plural(-saldoDe(c.id), 'vianda')} fijas`].filter(Boolean).join(' · ');
+              return irow(c, `<div class="s" style="color:var(--skip-ink);font-weight:500">${esc(txt.replace(/^./, x => x.toUpperCase()))}</div>`,
+                (debePed ? `<button class="btn" data-resumen="${c.id}" data-stop title="Resumen de la semana">${icon('lista', 13)}</button>` : '')
+                + (esDueno() ? `<button class="btn" ${debePed ? `data-pago-ped="${c.id}"` : `data-pago="${c.id}"`} data-stop>${icon('pago', 13)} Pago</button>` : ''));
+            }).join('')}
           </div></section>` : ''}
 
         ${negativos.length || faltanHoy.length || bajos.length ? `<section class="tsec">
@@ -195,7 +202,7 @@ function renderHoy(bar, main){
           <h2>${icon('reloj', 14)} Próximos días</h2>
           <div class="clist"><div class="flist">${Array.from({ length: 7 }, (_, i) => {
             const f = sumarDias(hoy, i), d = demandaDia(f);
-            return `<div class="fl ${i === 0 ? 'today' : ''}"><span class="d">${esc(nombreDia(f))}</span><span class="muted">${plural(clientesDelDia(f).length, 'cliente')}</span><b>${d}</b></div>`;
+            return `<div class="fl click ${i === 0 ? 'today' : ''}" data-dia="${f}" role="button" tabindex="0" title="Ver la entrega de ese día"><span class="d">${esc(nombreDia(f))}</span><span class="muted">${plural(clientesDelDia(f).length, 'cliente')}</span><b>${d}</b>${icon('chevR', 13)}</div>`;
           }).join('')}</div></div>
         </section>
       </aside>
@@ -205,11 +212,86 @@ function renderHoy(bar, main){
   main.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => irA(b.dataset.ir)));
   bindCartaDia(main);
   bindRenovar(main, refrescar);
+  main.querySelectorAll('[data-dia]').forEach(el => {
+    el.addEventListener('click', () => abrirDiaEntrega(el.dataset.dia));
+    el.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); abrirDiaEntrega(el.dataset.dia); } });
+  });
   main.querySelectorAll('[data-stop]').forEach(b => b.addEventListener('click', e => e.stopPropagation()));
+  main.querySelectorAll('[data-pago-ped]').forEach(b => b.addEventListener('click', () => dialogoPagoPedidos(clientePorId(b.dataset.pagoPed), refrescar)));
+  main.querySelectorAll('[data-resumen]').forEach(b => b.addEventListener('click', () => abrirResumenSemana(clientePorId(b.dataset.resumen))));
   main.querySelectorAll('[data-pago]').forEach(b => b.addEventListener('click', () => dialogoPago(clientePorId(b.dataset.pago), refrescar)));
   main.querySelectorAll('.irow[data-cli]').forEach(row => row.addEventListener('click', () => { irA('clientes'); abrirCliente(row.dataset.cli); }));
   const nv = main.querySelector('#nueva-comanda-vacio'); if(nv) nv.addEventListener('click', () => abrirComanda(null, hoy, 'almuerzo'));
   main.querySelectorAll('details[data-plegado]').forEach(d => d.addEventListener('toggle', () => { if(d.open) hoyPlegadas.delete(d.dataset.plegado); else hoyPlegadas.add(d.dataset.plegado); }));
   bindEntregaRows(main.querySelector('#hoy-entregas'), hoy, refrescar, { deshacer: true });
   const hp = main.querySelector('#hoy-pedidos'); if(hp) bindPedidos(hp, hoy, refrescar);
+}
+
+/* ---------- cómo viene la entrega de un día (desde "Próximos días") ---------- */
+async function abrirDiaEntrega(fecha){
+  try{ if(!state.fechasCargadas.has(fecha)) await asegurarFecha(fecha); }catch(e){ toastError('No se pudo cargar ese día', e); return; }
+  const hoy = todayStr();
+  const ESTADO = { entregado: ['ok', 'Entregado'], no_recibido: ['bad', 'No lo recibió'], saltado: ['skip', 'Salteado'] };
+  const filas = [];
+  let vPacks = 0, sinCred = 0;
+  for(const c of clientesDelDia(fecha)){
+    for(const t of turnosDe(c, fecha)){
+      const n = viandasTurno(c, fecha, t), e = getEntrega(c.id, fecha), est = e && e[t];
+      const falta = usaCreditos(c) && !cuentaComoVianda(est) && est !== 'saltado' && saldoProyectado(c, fecha) < n;
+      if(est !== 'saltado') vPacks += n;
+      if(falta) sinCred++;
+      filas.push({ c, n, est, falta });
+    }
+  }
+  filas.sort((a, b) => (b.falta - a.falta) || a.c.nombre.localeCompare(b.c.nombre, 'es'));
+  const pedidos = pedidosDelDia(fecha).filter(p => p.estado !== 'cancelada');
+  const platos = pedidos.reduce((s, p) => s + p.viandas, 0);
+  const menus = menusDelDia(fecha);
+  const filaPack = ({ c, n, est, falta }) => {
+    const m = menuPorId(c.menuAlmuerzoId);
+    const etiqueta = est ? `<span class="tag ${ESTADO[est][0]}">${ESTADO[est][1]}</span>`
+      : falta ? `<span class="tag bad" title="Con lo que va a recibir hasta ese día, no le alcanzan los créditos">Sin créditos ese día</span>`
+      : modoPago(c) === 'cuenta' ? '<span class="tag debe">A cuenta</span>' : '';
+    return `<div class="dia-row" data-dia-cli="${c.id}" role="button" tabindex="0">
+      <div class="t"><div class="n">${esc(c.nombre)}</div>
+        <div class="s"><b>${n}×</b> ${esc(m ? m.nombre : 'vianda')} · ${esc(TIPO_LABEL[c.tipo] || '')}${c.direccion ? ' · ' + esc(c.direccion) : ''}</div></div>
+      ${etiqueta}</div>`;
+  };
+  const filaPedido = (p) => { const c = clientePorId(p.clienteId);
+    return `<div class="dia-row" data-dia-cli="${c.id}" role="button" tabindex="0">
+      <div class="t"><div class="n">${esc(c.nombre)}</div><div class="s">${p.lineas.map(l => `<b>${l.cantidad}×</b> ${esc(textoLinea(l))}`).join(' · ')}</div></div>
+      ${p.total != null ? `<b class="dia-plata">${fmtPlata(p.total)}</b>` : ''}${p.estado === 'entregada' ? '<span class="tag ok">Entregado</span>' : ''}</div>`; };
+
+  abrirPanel({
+    titulo: `${icon('reloj', 14)} Entrega del día`,
+    ancho: 'medio',
+    html: `<div class="md-nav">
+        <button class="iconbtn" type="button" data-dia-ir="-1" aria-label="Día anterior" title="Día anterior">${icon('chevL', 15)}</button>
+        <b>${esc(nombreDia(fecha))}</b><span class="muted">${esc(formatFechaLarga(fecha).replace(/^./, x => x.toUpperCase()))}</span>
+        <button class="iconbtn" type="button" data-dia-ir="1" aria-label="Día siguiente" title="Día siguiente">${icon('chevR', 15)}</button>
+      </div>
+      <div class="echips">
+        <span class="echip pk ${vPacks ? '' : 'cero'}"><i></i><b>${vPacks}</b>viandas de packs</span>
+        <span class="echip pd ${platos ? '' : 'cero'}"><i></i><b>${platos}</b>platos de pedidos</span>
+        ${sinCred ? `<span class="echip bad"><i></i><b>${sinCred}</b>sin créditos ese día</span>` : ''}
+      </div>
+      <p class="dia-menu">${icon('menu', 14)} ${menus.length ? `Menú del día: <b>${menus.map(m => esc(m.nombre)).join(' · ')}</b>` : '<span class="muted">Todavía no se eligió el menú de este día.</span>'}</p>
+      <div class="psec" style="margin-top:14px"><h3>Packs y fijos <span class="n">${plural(filas.length, 'entrega')}</span></h3>
+        <div class="clist">${filas.length ? filas.map(filaPack).join('') : `<div class="calm">${icon('check')} No hay viandas de packs programadas.</div>`}</div>
+        ${sinCred ? `<p class="muted" style="font-size:13px;margin:8px 2px 0">"Sin créditos ese día": con lo que va a recibir hasta entonces no le alcanza. Conviene renovarle el pack antes.</p>` : ''}</div>
+      <div class="psec"><h3>Pedidos <span class="n">${plural(pedidos.length, 'pedido')}</span></h3>
+        <div class="clist">${pedidos.length ? pedidos.map(filaPedido).join('') : `<div class="calm">${icon('comanda')} Todavía no hay pedidos cargados para este día.</div>`}</div></div>`,
+    pie: `${puedeEditarComandas(fecha) ? `<button class="btn lg" id="dia-pedido">${icon('plus', 14)} Nuevo pedido para este día</button>` : ''}<span class="sp"></span>
+      <button class="btn lg primary" id="dia-cerrar">Listo</button>`,
+    onMount: (el) => {
+      el.querySelector('#dia-cerrar').addEventListener('click', () => cerrarPanel());
+      el.querySelectorAll('[data-dia-ir]').forEach(b => b.addEventListener('click', () => abrirDiaEntrega(sumarDias(fecha, Number(b.dataset.diaIr)))));
+      const np = el.querySelector('#dia-pedido'); if(np) np.addEventListener('click', () => abrirComanda(null, fecha, 'almuerzo'));
+      el.querySelectorAll('[data-dia-cli]').forEach(r => {
+        const abrir = () => { irA('clientes'); abrirCliente(r.dataset.diaCli); };
+        r.addEventListener('click', abrir);
+        r.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); abrir(); } });
+      });
+    }
+  });
 }

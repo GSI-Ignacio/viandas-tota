@@ -263,11 +263,18 @@ function renderMenus(main){
   const cats = [...new Set(state.menus.map(m => m.categoria || 'Sin categoría'))];
   const fila = m => `<div class="irow click ${m.activo ? '' : 'off'}" data-menu="${m.id}" tabindex="0">
       ${icon('menu', 16)}
-      <div class="t"><div class="n">${esc(m.nombre)} ${m.llevaGuarnicion ? '<span class="tag plain">+ guarnición</span>' : ''} ${m.activo ? '' : '<span class="tag bad">Sin stock / inactivo</span>'}</div>
+      <div class="t"><div class="n">${esc(m.nombre)} ${m.llevaGuarnicion ? '<span class="tag plain">+ guarnición</span>' : ''} ${!m.activo ? '<span class="tag plain">Inactivo</span>'
+          : porcionesDisponibles(m) === 0 ? '<span class="tag bad">Sin stock: no aparece en los pedidos</span>'
+          : armadoMenu(m) === 'piezas' ? `<span class="tag warn" title="Tenés las piezas en stock pero el plato todavía hay que armarlo">Para armar · alcanza para ${porcionesDisponibles(m)}</span>`
+          : porcionesDisponibles(m) != null ? `<span class="tag ok">Listo · quedan ${porcionesDisponibles(m)}</span>`
+          : piezaSugerida(m) ? `<span class="tag plain">Se puede armar con ${esc(piezaSugerida(m).nombre)}</span>${esDueno() ? ` <button class="btn quiet" type="button" data-enlazar="${m.id}" title="Enlazar ${esc(piezaSugerida(m).nombre)} como pieza de este menú">${icon('plus', 12)} Enlazar</button>` : ''}` : ''}</div>
         <div class="s">${esc(componentesTxt(m))}${m.descripcion ? ' · ' + esc(m.descripcion) : ''}</div></div>
       <span class="why">${usoHoy.get(m.id) ? `${plural(usoHoy.get(m.id), 'vianda')} hoy` : ''}</span>
       <b class="num" style="min-width:84px;text-align:right">${m.precio != null ? fmtPlata(m.precio) : '<span class="muted" style="font-weight:400">sin precio</span>'}</b></div>`;
+  const paraArmar = state.menus.filter(m => m.activo && armadoMenu(m) === 'piezas' && porcionesDisponibles(m) > 0);
   main.innerHTML = `<div class="page">
+    ${paraArmar.length ? `<div class="banner warn" style="border-radius:12px;border:1px solid var(--warn-line);margin-bottom:14px">${icon('alerta', 14)}
+      <span><b>Para armar:</b> tenés las piezas de ${paraArmar.map(m => `<b>${esc(m.nombre)}</b> (${porcionesDisponibles(m)})`).join(', ')}, pero todavía hay que armarlos.</span></div>` : ''}
     <p class="hello-sub" style="margin-top:0">La carta: cada menú con su precio y los productos del stock que lleva. Al cargar un pedido se descuentan solos, y la guarnición que se elija también.
       ${esDueno() ? ' Para cargar la carta de WhatsApp de una vez, usá <b>Pegar carta</b>.' : ''}</p>
     ${state.menus.length ? cats.map(cat => { const ms = state.menus.filter(m => (m.categoria || 'Sin categoría') === cat);
@@ -278,6 +285,17 @@ function renderMenus(main){
     ${guarniciones().length ? `<section class="tsec"><h2>Guarniciones <span class="n">${guarniciones().length}</span><span class="sp"></span><span class="hint2">se eligen en cada comanda de un menú "+ guarnición"</span></h2>
       <div class="clist"><div class="irow">${icon('caja', 15)}<div class="t"><div class="n">${guarniciones().map(g => esc(g.nombre)).join(' · ')}</div></div></div></div></section>` : ''}
   </div>`;
+  main.querySelectorAll('[data-enlazar]').forEach(b => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const m = menuPorId(b.dataset.enlazar), p = piezaSugerida(m);
+    if(!m || !p) return;
+    try{
+      await guardarMenu(m.id, { ...m, items: [{ productoId: p.id, cantidad: 1 }] });
+      await recalcularPedidosPendientes().catch(() => {});
+      toast(`<b>${esc(m.nombre)}</b> ahora se arma con ${esc(p.nombre)}${m.llevaGuarnicion ? ' y la guarnición que elijan' : ''}.`);
+      refrescar();
+    }catch(err){ toastError('No se pudo enlazar', err); }
+  }));
   main.querySelectorAll('[data-menu]').forEach(r => {
     r.addEventListener('click', () => abrirMenu(r.dataset.menu));
     r.addEventListener('keydown', e => { if(e.key === 'Enter') abrirMenu(r.dataset.menu); });
