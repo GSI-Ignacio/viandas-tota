@@ -28,7 +28,7 @@ const state = {
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 10;
+const VERSION_BASE_APP = 11;
 
 /* ---------- roles ---------- */
 const esDueno = () => state.perfil.rol === 'dueno';
@@ -391,9 +391,10 @@ function estadoSaldo(c){
   if(s <= state.config.alertaViandas) return 'warn';
   return 'ok';
 }
-/* ¿Le alcanza el saldo para entregarle este turno? Solo los prepagos necesitan créditos
-   (con la base en la v8; antes la base los pedía para todos). */
+/* ¿Se le puede entregar este turno? Con la base en la v11 siempre: un pack sin créditos
+   recibe igual y queda debiendo. Antes, solo los prepagos necesitaban créditos (v8). */
 function puedeEntregar(c, fecha, turno){
+  if(state.versionBase >= 11) return true;
   const e = getEntrega(c.id, fecha);
   if(e && cuentaComoVianda(e[turno])) return true;
   if(!usaCreditos(c) && state.versionBase >= 8) return true;

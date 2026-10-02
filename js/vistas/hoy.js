@@ -278,7 +278,7 @@ async function abrirDiaEntrega(fecha){
       <p class="dia-menu">${icon('menu', 14)} ${menus.length ? `Menú del día: <b>${menus.map(m => esc(m.nombre)).join(' · ')}</b>` : '<span class="muted">Todavía no se eligió el menú de este día.</span>'}</p>
       <div class="psec" style="margin-top:14px"><h3>Packs y fijos <span class="n">${plural(filas.length, 'entrega')}</span></h3>
         <div class="clist">${filas.length ? filas.map(filaPack).join('') : `<div class="calm">${icon('check')} No hay viandas de packs programadas.</div>`}</div>
-        ${sinCred ? `<p class="muted" style="font-size:13px;margin:8px 2px 0">"Sin créditos ese día": con lo que va a recibir hasta entonces no le alcanza. Conviene renovarle el pack antes.</p>` : ''}</div>
+        ${sinCred ? `<p class="muted" style="font-size:13px;margin:8px 2px 0">"Sin créditos ese día": con lo que va a recibir hasta entonces no le alcanza.${state.versionBase >= 11 ? ' Se le entrega igual y queda debiendo;' : ''} conviene renovarle el pack antes.</p>` : ''}</div>
       <div class="psec"><h3>Pedidos <span class="n">${plural(pedidos.length, 'pedido')}</span></h3>
         <div class="clist">${pedidos.length ? pedidos.map(filaPedido).join('') : `<div class="calm">${icon('comanda')} Todavía no hay pedidos cargados para este día.</div>`}</div></div>`,
     pie: `${puedeEditarComandas(fecha) ? `<button class="btn lg" id="dia-pedido">${icon('plus', 14)} Nuevo pedido para este día</button>` : ''}<span class="sp"></span>

@@ -68,7 +68,7 @@ function bindEntregaRows(cont, fecha, alCambiar, opciones = {}){
     try{
       await marcarEntrega(c, fecha, turno, nuevo);
       const aviso = cuentaComoVianda(nuevo) && usaCreditos(c) && estadoSaldo(c) !== 'ok' && !esCadete()
-        ? ` ${saldoDe(c.id) <= 0 ? 'Se quedó sin créditos.' : `Le quedan ${plural(saldoDe(c.id), 'crédito')}.`}` : '';
+        ? ` ${saldoDe(c.id) < 0 ? `Queda debiendo ${plural(-saldoDe(c.id), 'crédito')}.` : saldoDe(c.id) === 0 ? 'Se quedó sin créditos.' : `Le quedan ${plural(saldoDe(c.id), 'crédito')}.`}` : '';
       if(opciones.deshacer){
         const que = { entregado: 'entregado', no_recibido: 'no lo recibió (cuenta como vianda)', saltado: 'salteada, no usa crédito' }[nuevo] || 'sin marcar';
         toast(`<b>${esc(c.nombre)}</b> · ${TURNO_LABEL[turno].toLowerCase()}: ${que}.${aviso}`, aviso ? 'info' : 'ok', null, {
