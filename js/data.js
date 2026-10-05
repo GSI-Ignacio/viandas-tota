@@ -28,7 +28,7 @@ const state = {
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 11;
+const VERSION_BASE_APP = 12;
 
 /* ---------- roles ---------- */
 const esDueno = () => state.perfil.rol === 'dueno';
@@ -256,10 +256,13 @@ function recibeTurno(c, fecha, turno){
 /* Viandas de una entrega: lo ya entregado, o lo de su ficha. */
 function viandasTurno(c, fecha, turno){
   const e = getEntrega(c.id, fecha);
-  const snap = e && cuentaComoVianda(e[turno]) ? (turno === 'almuerzo' ? e.cantAlmuerzo : e.cantCena) : null;
+  // la cantidad anotada en la entrega de ese día (al entregarla, o si se sumaron o quitaron viandas desde Hoy)
+  const snap = e && (cuentaComoVianda(e[turno]) || state.versionBase >= 12) ? (turno === 'almuerzo' ? e.cantAlmuerzo : e.cantCena) : null;
   if(snap != null) return snap;
   return Math.max(cantTurno(c, turno), 1);
 }
+// sumar o quitar viandas de un día: dueño o ayudante, en los días que puede registrar
+const puedeCambiarViandas = (fecha) => state.versionBase >= 12 && !esCadete() && puedeRegistrarEn(fecha);
 /* "2 viandas · Fit" (el tipo de vianda es informativo, para la cocina) */
 function textoVianda(c, fecha, turno = 'almuerzo'){
   const n = viandasTurno(c, fecha, turno);
@@ -646,6 +649,18 @@ async function marcarEntrega(c, fecha, turno, valor){
     almuerzo: turno === 'almuerzo' ? valor : (e ? e.almuerzo : null),
     cena: turno === 'cena' ? valor : (e ? e.cena : null)
   };
+  return guardarEntrega(c, fecha, e, payload);
+}
+/* Cuántas viandas lleva ese día en un turno, solo para ese día (la ficha no cambia).
+   Si ya se entregó, los créditos y el stock se ajustan enseguida; si no, al entregarla. */
+async function cambiarViandasDia(c, fecha, turno, n){
+  if(!puedeCambiarViandas(fecha)) throw new Error('No podés cambiar las viandas de ese día.');
+  const e = getEntrega(c.id, fecha);
+  const payload = { cliente_id: c.id, fecha, almuerzo: e ? e.almuerzo : null, cena: e ? e.cena : null };
+  payload[turno === 'almuerzo' ? 'cant_almuerzo' : 'cant_cena'] = Math.max(1, Math.trunc(n) || 1);
+  return guardarEntrega(c, fecha, e, payload);
+}
+async function guardarEntrega(c, fecha, e, payload){
   const { data, error } = await sb.from('entregas').upsert(payload, { onConflict: 'cliente_id,fecha' }).select().single();
   if(error) throw error;
   const nueva = mapEntrega(data);

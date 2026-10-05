@@ -249,6 +249,12 @@ svg{display:block;flex:none}
 /* vacío gana sobre cambiado: un obligatorio que se borró se ve rojo, no azul */
 .cambiado.req-vacio,.sel-btn.cambiado.req-vacio,.cambiado.falta-borde,.sel-btn.cambiado.falta-borde{border-color:var(--bad)!important;background:var(--ctl)!important}
 .form-aviso{font-size:13px;color:var(--bad-ink);margin-right:auto;min-width:0}
+/* − 2 viandas + en la ficha de la entrega */
+.vdia{display:inline-flex;align-items:center;gap:6px;padding:2px;border:1px solid var(--line-2);border-radius:10px;background:var(--ctl)}
+.vdia b{min-width:72px;text-align:center;font-weight:600}
+.vdia .iconbtn{width:30px;height:30px}
+.vdia.busy{opacity:.55;pointer-events:none}
+.vdia-nota{font-size:12.5px}
 .form-aviso:empty{display:none}
 .btn.primary:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 .inp.invalido,.field .invalido,.sel-btn.invalido,.cline .invalido{border-color:var(--bad)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 18%,transparent)!important}

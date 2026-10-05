@@ -7,7 +7,7 @@
 -- vuelve a hacer y no se tocan los datos.
 --
 -- Cada actualización nueva se agrega al final de este archivo.
--- Adentro van, en orden, las versiones 5 a 11. Las anteriores (v2 a v4) ya están corridas;
+-- Adentro van, en orden, las versiones 5 a 12. Las anteriores (v2 a v4) ya están corridas;
 -- quedan en la carpeta migraciones/ como historial, junto con cada versión por separado.
 -- ============================================================
 
@@ -698,6 +698,75 @@ begin
 end $$;
 
 create or replace function version_base() returns integer language sql immutable as $$ select 11 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v12 — viandas de más (o de menos) para un día
+--   Desde Hoy, el dueño o el ayudante pueden cambiar cuántas viandas lleva
+--   alguien ese día; cada una usa un crédito (y su stock). Lo que se cambia
+--   se conserva cuando el cadete marca la entrega.
+-- ============================================================
+
+begin;
+
+create or replace function entregas_validar() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  c clientes%rowtype;
+  rol text := mi_rol();
+begin
+  if rol is null then raise exception 'Tenés que iniciar sesión'; end if;
+  -- Un upsert sobre una entrega que ya existe pasa primero por acá como INSERT y
+  -- después como UPDATE: se valida en la pasada del UPDATE, que conoce la fila vieja.
+  if tg_op = 'INSERT' and exists (select 1 from entregas x where x.cliente_id = new.cliente_id and x.fecha = new.fecha) then
+    return new;
+  end if;
+  select * into c from clientes where id = new.cliente_id;
+  if not found or c.user_id <> mi_negocio() then raise exception 'Cliente inexistente'; end if;
+  new.user_id := c.user_id;
+
+  if rol <> 'dueno' then
+    if new.fecha <> hoy_ar() or (tg_op = 'UPDATE' and old.fecha <> new.fecha) then
+      raise exception 'Solo se pueden registrar entregas del día de hoy';
+    end if;
+    if rol = 'cadete' and cadete_del_dia(new.cliente_id, new.fecha) is distinct from mi_cadete() then
+      raise exception 'Este cliente no está en tu ruta de hoy';
+    end if;
+    -- el cadete no cambia cuántas viandas lleva: se conserva lo que había (o lo de la ficha)
+    if rol = 'cadete' then
+      if tg_op = 'UPDATE' then new.cant_almuerzo := old.cant_almuerzo; new.cant_cena := old.cant_cena;
+      else new.cant_almuerzo := null; new.cant_cena := null; end if;
+    end if;
+  end if;
+  -- el dueño y el ayudante pueden sumar o quitar viandas solo para ese día (al menos una)
+  if new.cant_almuerzo is not null and new.cant_almuerzo < 1 then new.cant_almuerzo := 1; end if;
+  if new.cant_cena is not null and new.cant_cena < 1 then new.cant_cena := 1; end if;
+
+  -- cada vianda de la ficha del cliente es una unidad
+  if new.almuerzo in ('entregado', 'no_recibido') and new.cant_almuerzo is null then
+    new.cant_almuerzo := case when tg_op = 'UPDATE' and old.almuerzo in ('entregado', 'no_recibido') and old.cant_almuerzo is not null
+                              then old.cant_almuerzo else greatest(c.cant_almuerzo, 1) end;
+  end if;
+  if new.cena in ('entregado', 'no_recibido') and new.cant_cena is null then
+    new.cant_cena := case when tg_op = 'UPDATE' and old.cena in ('entregado', 'no_recibido') and old.cant_cena is not null
+                          then old.cant_cena else greatest(c.cant_cena, 1) end;
+  end if;
+
+  -- ya no se frena por créditos: un pack sin créditos recibe igual y cada vianda le sigue
+  -- descontando (queda debiendo); sanatorios y empresas van a cuenta y los casuales no usan créditos
+
+  if new.cadete_id is null then new.cadete_id := cadete_del_dia(new.cliente_id, new.fecha); end if;
+  new.registrado_por := auth.uid();
+  new.updated_at := now();
+  return new;
+end $$;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 12 $$;
 grant execute on function version_base() to authenticated;
 
 notify pgrst, 'reload schema';

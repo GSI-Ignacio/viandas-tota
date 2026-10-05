@@ -64,6 +64,7 @@ const ICON_PATHS = {
   backup: '<path d="M8 2.5v7.5M5 7l3 3 3-3"/><path d="M2.5 11v2.5h11V11"/>',
   buscar: '<circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/>',
   plus: '<path d="M8 3v10M3 8h10"/>',
+  menos: '<path d="M3 8h10"/>',
   x: '<path d="m4 4 8 8M12 4l-8 8"/>',
   check: '<path d="m3.5 8.5 3 3 6-7"/>',
   chevL: '<path d="m10 3.5-4.5 4.5 4.5 4.5"/>',

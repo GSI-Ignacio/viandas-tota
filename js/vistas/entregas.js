@@ -101,6 +101,16 @@ function progresoHtml(r, { sinPendientes = false } = {}){
     ${sinPendientes ? '' : `<span class="pl">${r.pendientes} pendientes</span>`}`;
 }
 
+/* − 2 viandas + : cuántas lleva ese día (solo ese día; la ficha del cliente no cambia). */
+function viandasDiaHtml(c, fecha, t){
+  const n = viandasTurno(c, fecha, t), base = Math.max(cantTurno(c, t), 1);
+  return `<span class="vdia">
+      <button class="iconbtn" type="button" data-vd="${t}" data-paso="-1" ${n <= 1 ? 'disabled' : ''} aria-label="Una vianda menos" title="Una vianda menos">${icon('menos', 14)}</button>
+      <b>${plural(n, 'vianda')}</b>
+      <button class="iconbtn" type="button" data-vd="${t}" data-paso="1" aria-label="Una vianda más" title="Una vianda más">${icon('plus', 14)}</button>
+    </span>${n !== base ? ` <span class="muted vdia-nota">solo ${fecha === todayStr() ? 'hoy' : 'ese día'} · normalmente ${base}</span>` : ''}`;
+}
+
 /* Ficha rápida para entregar: dirección, cómo llegar, contacto, notas. */
 function abrirFichaEntrega(c, fecha){
   if(!c) return;
@@ -113,7 +123,7 @@ function abrirFichaEntrega(c, fecha){
       <div class="psec"><h3>Entrega</h3><dl class="props">
         <dt>Dirección</dt><dd>${c.direccion ? esc(c.direccion) : '<span class="muted">Sin dirección cargada</span>'}</dd>
         ${c.referencia ? `<dt>Referencia</dt><dd>${esc(c.referencia)}</dd>` : ''}
-        ${turnosDe(c, fecha).map(t => `<dt>${turnosDe(c, fecha).length > 1 ? TURNO_LABEL[t] : 'Lleva'}</dt><dd>${esc(textoVianda(c, fecha, t))}</dd>`).join('')}
+        ${turnosDe(c, fecha).map(t => `<dt>${turnosDe(c, fecha).length > 1 ? TURNO_LABEL[t] : 'Lleva'}</dt><dd>${puedeCambiarViandas(fecha) ? viandasDiaHtml(c, fecha, t) : esc(textoVianda(c, fecha, t))}</dd>`).join('')}
         ${pedidoDe(c.id, fecha) ? `<dt>Pedido</dt><dd>${esc(textoMenus(c, fecha))} ${estadoPedidoTag(pedidoDe(c.id, fecha))}
           ${puedeEditarComandas(fecha) ? `<button class="btn quiet" data-editar-comanda="almuerzo">${icon('editar', 12)} Ver</button>` : ''}</dd>` : ''}
         <dt>Cadete</dt><dd>${k ? `<span class="dot" style="--c:${k.color}"></span>${esc(k.nombre)}` : '<span class="muted">Sin asignar</span>'}</dd>
@@ -131,6 +141,21 @@ function abrirFichaEntrega(c, fecha){
     onMount: async (el) => {
       const b = el.querySelector('#ficha-completa');
       if(b) b.addEventListener('click', () => { irA('clientes'); abrirCliente(c.id); });
+      // sumar o quitar viandas de ese día: se guarda enseguida y la ficha se actualiza en el lugar
+      el.querySelectorAll('[data-vd]').forEach(x => x.addEventListener('click', async () => {
+        const t = x.dataset.vd, antes = viandasTurno(c, fecha, t), n = antes + Number(x.dataset.paso);
+        if(n < 1) return;
+        const caja = x.closest('.vdia'); caja.classList.add('busy');
+        try{
+          await cambiarViandasDia(c, fecha, t, n);
+          const usa = cuentaComoVianda((getEntrega(c.id, fecha) || {})[t]);
+          toast(`<b>${esc(c.nombre)}</b> lleva ${plural(n, 'vianda')} ${fecha === todayStr() ? 'hoy' : 'ese día'}.`
+            + (usaCreditos(c) ? (usa ? ` Ya estaba entregada: ${n > antes ? 'se descontó' : 'se devolvió'} ${plural(Math.abs(n - antes), 'crédito')}.` : ` Al entregarla usa ${plural(n, 'crédito')}.`) : ''), 'ok', null, {
+            label: 'Deshacer', fn: async () => { try{ await cambiarViandasDia(c, fecha, t, antes); refrescar(); abrirFichaEntrega(c, fecha); }catch(e){ toastError('No se pudo deshacer', e); } }
+          });
+          refrescar(); abrirFichaEntrega(c, fecha);
+        }catch(e){ toastError('No se pudieron cambiar las viandas', e); caja.classList.remove('busy'); }
+      }));
       el.querySelectorAll('[data-editar-comanda]').forEach(x => x.addEventListener('click', () => abrirComanda(c, fecha, x.dataset.editarComanda)));
       const m = el.querySelector('#ficha-mapa');
       if(m){
