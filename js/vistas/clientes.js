@@ -318,9 +318,11 @@ function abrirCliente(id){
     titulo: c ? `${icon('clientes', 14)} Cliente` : `${icon('plus', 14)} Nuevo cliente`,
     html: `
       ${c ? `<h2 class="ptitle">${esc(c.nombre)}</h2><p class="psub">${tipoTag(c)} ${c.activo ? '' : '<span class="tag plain">Pausado</span>'}</p>` : ''}
-      ${c ? `<div class="psec" style="margin-top:8px"><h3>${{ prepago: 'Créditos y pagos', cuenta: 'Cuenta corriente', sin: 'Pagos' }[modoPago(c)]}</h3>${saldoHtml}</div>` : ''}
-
-      <div class="psec" style="${c ? '' : 'margin-top:0'}"><h3>Datos</h3>
+      <div class="pcols">
+      ${c ? `<div class="pcol"><div class="psec"><h3>${{ prepago: 'Créditos y pagos', cuenta: 'Cuenta corriente', sin: 'Pagos' }[modoPago(c)]}</h3>${saldoHtml}</div>
+        <div class="psec"><h3>Historial de entregas</h3><div id="c-entregas"><div class="skel" style="width:40%"></div></div></div></div>` : ''}
+      <div class="pcol">
+      <div class="psec"><h3>Datos</h3>
         <div class="field"><label for="f-nombre">Nombre${REQ}</label><input type="text" id="f-nombre" value="${esc(d.nombre)}" placeholder="Nombre y apellido" ${c ? '' : 'autofocus'}></div>
         <div class="frow">
           <div class="field"><label for="f-tipo">Tipo de cliente</label><select id="f-tipo">
@@ -331,7 +333,10 @@ function abrirCliente(id){
           <input type="text" id="f-empresa" value="${esc(d.empresaNombre)}" placeholder="Ej: Estudio Contable SRL"></div>
         <div class="field"><label for="f-notas">Notas</label><textarea id="f-notas" rows="2" placeholder="Sin sal, timbre 3B, dejar en portería…">${esc(d.notas)}</textarea></div>
       </div>
-
+      ${c ? `<div class="psec"><h3>Acciones</h3><div class="pacts" style="border:0;margin:0;padding:0">
+        <button class="btn lg" type="button" data-action="toggle-activo" data-id="${c.id}">${icon(c.activo ? 'pausa' : 'play', 14)} ${c.activo ? 'Pausar entregas' : 'Reactivar'}</button></div></div>` : ''}
+      </div>
+      <div class="pcol">
       <div class="psec"><h3>Entrega</h3>
         <div class="field"><span class="flabel" id="lbl-dias">Días que recibe</span>
           <div class="days" role="group" aria-labelledby="lbl-dias">${DIAS_CORTOS.map((l, i) => `<label title="${DIAS_LARGOS[i]}"><input type="checkbox" name="f-dias" value="${i + 1}" ${d.dias.includes(i + 1) ? 'checked' : ''} aria-label="${DIAS_LARGOS[i]}"><span>${l}</span></label>`).join('')}</div>
@@ -350,11 +355,9 @@ function abrirCliente(id){
         ${ubicacionFormHtml('f', d)}
         <div class="field" style="margin-top:12px"><label for="f-referencia">Referencia para el cadete</label><input type="text" id="f-referencia" value="${esc(d.referencia)}" placeholder="Piso, depto, portón verde…"></div>
       </div>
-
-      ${c ? '' : `<div class="psec"><h3>Créditos iniciales</h3>${saldoHtml}</div>`}
-      ${c ? `      <div class="psec"><h3>Últimas entregas</h3><div id="c-entregas"><div class="skel" style="width:40%"></div></div></div>
-      <div class="psec"><h3>Acciones</h3><div class="pacts" style="border:0;margin:0;padding:0">
-        <button class="btn lg" type="button" data-action="toggle-activo" data-id="${c.id}">${icon(c.activo ? 'pausa' : 'play', 14)} ${c.activo ? 'Pausar entregas' : 'Reactivar'}</button></div></div>` : ''}`,
+      </div>
+      ${c ? '' : `<div class="pcol"><div class="psec"><h3>Créditos iniciales</h3>${saldoHtml}</div></div>`}
+      </div>`,
     // eliminar va al pie, a la vista, como en los pedidos
     pie: `${c ? `<button class="btn lg danger" type="button" data-action="eliminar" data-id="${c.id}">${icon('borrar', 14)} Eliminar cliente</button><span class="sp"></span>` : ''}
       <button class="btn lg" id="cancelar-modal">Cancelar</button><button class="btn lg primary" id="guardar-cliente">${c ? 'Guardar cambios' : 'Crear cliente'}</button>`,
@@ -437,8 +440,9 @@ function abrirCliente(id){
 }
 
 async function cargarHistorialCliente(el, c){
+  cargarHistorial(c, el.querySelector('#c-entregas'));   // aparte de los pagos: si uno falla, el otro igual se ve
   try{
-    const [pagos, entregas] = await Promise.all([esCadete() ? [] : listarPagos(c.id), historialEntregas(c.id)]);
+    const pagos = esCadete() ? [] : await listarPagos(c.id);
     const cp = el.querySelector('#c-pagos');
     if(cp){
       el.querySelector('#n-pagos').textContent = pagos.length || '';
@@ -459,15 +463,6 @@ async function cargarHistorialCliente(el, c){
           catch(e){ toastError('No se pudo borrar el pago', e); }
         }));
       }
-    }
-    const ce = el.querySelector('#c-entregas');
-    if(ce){
-      const est = v => v === 'entregado' ? '<span class="tag ok">Entregado</span>' : v === 'no_recibido' ? '<span class="tag bad">No lo recibió</span>' : v === 'saltado' ? '<span class="tag skip">Salteado</span>' : '';
-      ce.innerHTML = entregas.filter(e => e.almuerzo || e.cena).length ? entregas.filter(e => e.almuerzo || e.cena).map(e => `<div class="hist">
-          <span class="w">${formatFechaCorta(e.fecha)}</span>
-          <span class="t">${e.almuerzo ? `Almuerzo ${est(e.almuerzo)}` : ''} ${e.cena ? `Cena ${est(e.cena)}` : ''}</span>
-          <span class="v">${consumoEntrega(e) ? '−' + consumoEntrega(e) : ''}</span></div>`).join('')
-        : '<div class="muted" style="font-size:13px">Sin entregas registradas.</div>';
     }
   }catch(e){ const cp = el.querySelector('#c-pagos'); if(cp) cp.innerHTML = `<div class="muted">No se pudo cargar el historial.</div>`; }
 }
@@ -498,7 +493,7 @@ function abrirClienteLectura(c){
       </div>
       <p class="muted" style="font-size:13px">Solo el dueño puede modificar clientes y cargar pagos.</p>
       <div class="psec"><h3>Pagos <span class="n" id="n-pagos"></span></h3><div id="c-pagos"><div class="skel" style="width:50%"></div></div></div>
-      <div class="psec"><h3>Últimas entregas</h3><div id="c-entregas"><div class="skel" style="width:40%"></div></div></div>`,
+      <div class="psec"><h3>Historial de entregas</h3><div id="c-entregas"><div class="skel" style="width:40%"></div></div></div>`,
     onClose: () => { clienteAbierto = null; },
     onMount: (el) => cargarHistorialCliente(el, c)
   });

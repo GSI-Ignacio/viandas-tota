@@ -101,6 +101,50 @@ function progresoHtml(r, { sinPendientes = false } = {}){
     ${sinPendientes ? '' : `<span class="pl">${r.pendientes} pendientes</span>`}`;
 }
 
+/* Historial de entregas de un cliente (de historialCliente): cuándo y cuánto se le entregó.
+   Arriba, los totales de esos días; se ven los últimos y el resto con "Ver más". */
+function historialHtml(c, dias, { max = 10 } = {}){
+  if(!dias.length) return '<div class="muted" style="font-size:13px">Todavía no tiene entregas registradas.</div>';
+  const EST = { entregado: ['ok', 'Entregada'], no_recibido: ['bad', 'No la recibió'], saltado: ['skip', 'Salteada'] };
+  const tot = { entregado: 0, no_recibido: 0, saltado: 0, platos: 0 };
+  for(const d of dias){
+    d.viandas.forEach(v => { tot[v.estado] += v.cantidad; });
+    d.pedido.filter(l => l.estado === 'entregada').forEach(l => { tot.platos += l.cantidad; });
+  }
+  const resumen = [
+    tot.entregado ? `<span class="echip ok"><i></i><b>${tot.entregado}</b>${tot.entregado === 1 ? 'vianda entregada' : 'viandas entregadas'}</span>` : '',
+    tot.no_recibido ? `<span class="echip nr"><i></i><b>${tot.no_recibido}</b>no ${tot.no_recibido === 1 ? 'la recibió' : 'las recibió'}</span>` : '',
+    tot.saltado ? `<span class="echip skip"><i></i><b>${tot.saltado}</b>${tot.saltado === 1 ? 'salteada' : 'salteadas'}</span>` : '',
+    tot.platos ? `<span class="echip pd"><i></i><b>${tot.platos}</b>${tot.platos === 1 ? 'plato de pedidos' : 'platos de pedidos'}</span>` : ''
+  ].join('');
+  const hoy = todayStr(), dosTurnos = dias.some(d => d.viandas.length > 1);
+  const fila = (d, i) => {
+    const partes = d.viandas.map(v => `<span class="hz-i">${dosTurnos ? esc(TURNO_LABEL[v.turno]) + ': ' : ''}${plural(v.cantidad, 'vianda')} <span class="tag ${EST[v.estado][0]}">${EST[v.estado][1]}</span></span>`);
+    if(d.pedido.length){
+      const est = d.pedido.every(l => l.estado === 'entregada') ? 'entregada' : 'pendiente';
+      partes.push(`<span class="hz-i">${d.pedido.map(l => `${l.cantidad}× ${esc(textoLinea(l))}`).join(' · ')} ${estadoPedidoTag({ estado: est })}</span>`);
+    }
+    const usa = d.viandas.filter(v => cuentaComoVianda(v.estado)).reduce((s, v) => s + v.cantidad, 0);
+    const plata = d.pedido.length ? valorPedido(d.pedido) : null;
+    const valor = [usa && usaCreditos(c) ? `−${plural(usa, 'crédito')}` : '', plata ? fmtPlata(plata) : ''].filter(Boolean).join(' · ');
+    return `<div class="hist hz ${i >= max ? 'hidden' : ''}" data-hz>
+      <span class="w">${d.fecha === hoy ? 'Hoy' : esc(formatFechaMedia(d.fecha))}</span>
+      <span class="t">${partes.join('')}</span><span class="v">${valor}</span></div>`;
+  };
+  return `${resumen ? `<div class="echips hz-res">${resumen}<span class="muted">en los últimos ${plural(dias.length, 'día')} con entregas</span></div>` : ''}
+    <div class="hz-lista">${dias.map(fila).join('')}</div>
+    ${dias.length > max ? `<button class="btn quiet" type="button" data-hz-mas style="margin-top:6px">Ver ${plural(dias.length - max, 'día más', 'días más')}</button>` : ''}`;
+}
+function bindHistorial(root){
+  const b = root.querySelector('[data-hz-mas]');
+  if(b) b.addEventListener('click', () => { root.querySelectorAll('[data-hz].hidden').forEach(x => x.classList.remove('hidden')); b.remove(); });
+}
+async function cargarHistorial(c, cont){
+  if(!cont) return;
+  try{ cont.innerHTML = historialHtml(c, await historialCliente(c)); bindHistorial(cont); }
+  catch(e){ cont.innerHTML = '<div class="muted" style="font-size:13px">No se pudo cargar el historial.</div>'; }
+}
+
 /* − 2 viandas + : cuántas lleva ese día (solo ese día; la ficha del cliente no cambia). */
 function viandasDiaHtml(c, fecha, t){
   const n = viandasTurno(c, fecha, t), base = Math.max(cantTurno(c, t), 1);
@@ -117,10 +161,12 @@ function abrirFichaEntrega(c, fecha){
   const k = cadetePorId(cadeteDelDia(c, fecha));
   const wa = waLink(c.telefono, '');
   abrirPanel({
+    ancho: 'medio',
     titulo: `${icon('entregas', 14)} Entrega · ${esc(nombreDia(fecha))}`,
     html: `<h2 class="ptitle">${esc(c.nombre)}</h2>
       <p class="psub">${esc(c.tipo === 'empresa' && c.empresaNombre ? c.empresaNombre : c.tipo === 'pack' ? 'Pack de viandas' : c.tipo === 'empresa' ? 'Empresa' : 'Casual')}</p>
-      <div class="psec"><h3>Entrega</h3><dl class="props">
+      <div class="fe-top ${tieneUbicacion(c) ? '' : 'solo'}">
+      <div class="psec" style="margin-top:0"><h3>Entrega</h3><dl class="props">
         <dt>Dirección</dt><dd>${c.direccion ? esc(c.direccion) : '<span class="muted">Sin dirección cargada</span>'}</dd>
         ${c.referencia ? `<dt>Referencia</dt><dd>${esc(c.referencia)}</dd>` : ''}
         ${turnosDe(c, fecha).map(t => `<dt>${turnosDe(c, fecha).length > 1 ? TURNO_LABEL[t] : 'Lleva'}</dt><dd>${puedeCambiarViandas(fecha) ? viandasDiaHtml(c, fecha, t) : esc(textoVianda(c, fecha, t))}</dd>`).join('')}
@@ -137,7 +183,9 @@ function abrirFichaEntrega(c, fecha){
         ${wa ? `<a class="btn lg" href="${wa}" target="_blank" rel="noopener">${icon('wa', 14)} WhatsApp</a>` : ''}
         ${!esCadete() ? `<button class="btn lg" id="ficha-completa">${icon('clientes', 14)} Ficha del cliente</button>` : ''}
       </div></div>
-      ${tieneUbicacion(c) ? '<div class="psec"><h3>Mapa</h3><div class="minimap" id="ficha-mapa" style="height:320px"></div></div>' : ''}`,
+      ${tieneUbicacion(c) ? '<div class="psec" style="margin-top:0"><h3>Mapa</h3><div class="minimap" id="ficha-mapa"></div></div>' : ''}
+      </div>
+      ${!esCadete() ? `<div class="psec"><h3>Historial de entregas</h3><div id="fe-hist"><div class="skel" style="width:50%"></div></div></div>` : ''}`,
     onMount: async (el) => {
       const b = el.querySelector('#ficha-completa');
       if(b) b.addEventListener('click', () => { irA('clientes'); abrirCliente(c.id); });
@@ -157,6 +205,7 @@ function abrirFichaEntrega(c, fecha){
         }catch(e){ toastError('No se pudieron cambiar las viandas', e); caja.classList.remove('busy'); }
       }));
       el.querySelectorAll('[data-editar-comanda]').forEach(x => x.addEventListener('click', () => abrirComanda(c, fecha, x.dataset.editarComanda)));
+      cargarHistorial(c, el.querySelector('#fe-hist'));
       const m = el.querySelector('#ficha-mapa');
       if(m){
         try{ await cargarLeaflet(); const map = crearMapa(m, c); map.setView([c.lat, c.lng], 16);

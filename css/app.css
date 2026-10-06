@@ -255,6 +255,21 @@ svg{display:block;flex:none}
 .vdia .iconbtn{width:30px;height:30px}
 .vdia.busy{opacity:.55;pointer-events:none}
 .vdia-nota{font-size:12.5px}
+/* ventana de la entrega: datos y mapa lado a lado */
+.fe-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start;margin-top:14px}
+.fe-top.solo{grid-template-columns:minmax(0,1fr)}
+.fe-top .minimap{height:280px}
+.fe-top .pacts{flex-wrap:wrap}
+@media (max-width:760px){.fe-top{grid-template-columns:minmax(0,1fr)}}
+/* historial de entregas */
+.hz-res{margin:0 0 10px;flex-wrap:wrap;align-items:center}
+.hz-res .muted{font-size:12.5px}
+.hist.hz{align-items:flex-start;padding-top:7px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.hist.hz:last-child{border-bottom:0}
+.hist.hz .w{width:96px;padding-top:2px}
+.hist.hz .t{display:flex;flex-direction:column;gap:4px;white-space:normal;overflow:visible;color:var(--text)}
+.hist.hz .v{padding-top:2px;color:var(--text-2)}
+.hz-i .tag{margin-left:4px}
 .form-aviso:empty{display:none}
 .btn.primary:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 .inp.invalido,.field .invalido,.sel-btn.invalido,.cline .invalido{border-color:var(--bad)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 18%,transparent)!important}
@@ -262,7 +277,8 @@ svg{display:block;flex:none}
 .falta svg{color:var(--bad);flex:none}
 .cline > .falta{grid-column:1 / -1;margin-top:-2px;margin-bottom:4px}
 .field label,.flabel{display:block;font-size:13px;font-weight:500;color:var(--text-3);margin-bottom:6px}
-.field .help{font-size:12px;color:var(--text-3);margin-top:4px}
+.help{font-size:12px;color:var(--text-3);line-height:1.45}
+.field .help{margin-top:4px}
 .frow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .frow3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 .check{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--text-2);cursor:pointer}
@@ -462,6 +478,10 @@ svg{display:block;flex:none}
 .peek .minimap{break-inside:avoid}
 .peek.grande .pbody > .psec,.peek.grande .pbody > .field,.peek.grande .pbody > .frow,.peek.grande .pbody > dl,.peek.grande .pbody > .pacts{break-inside:avoid}
 .peek.grande .pbody > .psec{margin-top:0;margin-bottom:24px;display:inline-block;width:100%}
+/* ficha del cliente: tres columnas fijas (las columnas automáticas se corrían hacia el costado) */
+.peek.grande .pbody:has(> .pcols){columns:auto}
+.pcols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:32px;align-items:start;margin-top:8px}
+.pcol > .psec:first-child{margin-top:0}
 .phead{display:flex;align-items:center;gap:6px;height:56px;padding:0 12px 0 22px;border-bottom:1px solid var(--line);flex:none}
 .phead .id{font-size:13px;color:var(--text-3);font-weight:500;white-space:nowrap;display:flex;align-items:center;gap:8px}
 .phead .sp{flex:1}
@@ -586,6 +606,8 @@ svg{display:block;flex:none}
   .peek,.peek.medio{left:8px;right:8px;top:8px;bottom:8px;width:auto;height:auto;max-height:none;transform:none}
   .peek.grande .pbody{columns:auto;padding:20px 18px 28px}
   .peek.grande .pbody > .psec{display:block;margin-top:22px;margin-bottom:0}
+  .pcols{grid-template-columns:minmax(0,1fr);gap:0}
+  .pcol > .psec:first-child{margin-top:22px}
   @keyframes peekIn{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
   @keyframes peekOut{from{opacity:1;transform:none}to{opacity:0;transform:translateX(18px)}}
   .ptable.resp{display:none}

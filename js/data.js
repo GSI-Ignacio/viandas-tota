@@ -839,10 +839,25 @@ async function listarPagos(clienteId){
   if(error) throw error;
   return data || [];
 }
-async function historialEntregas(clienteId){
-  const { data, error } = await sb.from('entregas').select('*').eq('cliente_id', clienteId).order('fecha', { ascending: false }).limit(30);
+async function historialEntregas(clienteId, limite = 30){
+  const { data, error } = await sb.from('entregas').select('*').eq('cliente_id', clienteId).order('fecha', { ascending: false }).limit(limite);
   if(error) throw error;
   return (data || []).map(mapEntrega);
+}
+/* Historial de un cliente, día por día (del más nuevo al más viejo): las viandas de packs y fijos
+   con su estado y cantidad, y sus pedidos (sin los cancelados). */
+async function historialCliente(c){
+  const [ents, coms] = await Promise.all([
+    historialEntregas(c.id, 60),
+    sb.from('comandas').select('*').eq('cliente_id', c.id).neq('estado', 'cancelada').order('fecha', { ascending: false }).limit(150)
+      .then(({ data, error }) => { if(error) throw error; return (data || []).map(mapComanda); })
+  ]);
+  const dias = new Map();
+  const dia = (f) => { if(!dias.has(f)) dias.set(f, { fecha: f, viandas: [], pedido: [] }); return dias.get(f); };
+  for(const e of ents) for(const t of ['almuerzo', 'cena'])
+    if(e[t]) dia(e.fecha).viandas.push({ turno: t, estado: e[t], cantidad: (t === 'almuerzo' ? e.cantAlmuerzo : e.cantCena) ?? 1 });
+  for(const k of coms) dia(k.fecha).pedido.push(k);
+  return [...dias.values()].sort((a, b) => b.fecha.localeCompare(a.fecha));
 }
 
 async function guardarConfig(patch){
