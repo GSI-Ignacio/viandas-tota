@@ -404,7 +404,8 @@ function lineaCargaHtml(pid){
     <input type="number" class="inp" data-campo="cantidad" min="0" step="any" placeholder="Cantidad" aria-label="Cantidad">
     <button class="iconbtn" type="button" data-quitar-carga aria-label="Quitar" title="Quitar">${icon('x', 14)}</button></div>`;
 }
-function abrirCargaStock(pid, hecho){
+/* seguido = al cargar varias veces seguidas: lo que ya se cargó y la fecha elegida */
+function abrirCargaStock(pid, seguido = null){
   abrirPanel({
     ancho: 'medio',
     titulo: `${icon('caja', 14)} Cargar stock`,
@@ -415,10 +416,12 @@ function abrirCargaStock(pid, hecho){
         <div id="cs-lineas">${lineaCargaHtml(pid || '')}</div>
         <button class="btn" type="button" id="cs-agregar" style="margin-top:4px">${icon('plus', 13)} Otro producto</button></div>
       <div class="frow" style="margin-top:14px">
-        <div class="field"><label for="cs-fecha">Fecha</label><input type="date" id="cs-fecha" value="${todayStr()}"></div>
+        <div class="field"><label for="cs-fecha">Fecha</label><input type="date" id="cs-fecha" value="${(seguido && seguido.fecha) || todayStr()}"></div>
         <div class="field"><label for="cs-nota">Nota (opcional)</label><input type="text" id="cs-nota" placeholder="Proveedor, compra, merma…"></div></div>
-      ${hecho ? `<div class="banner" style="border-radius:9px;border:1px solid var(--ok-line);background:var(--ok-wash);color:var(--ok-ink)">${icon('check', 14)} ${hecho}</div>` : ''}`,
-    pie: `<button class="btn lg" id="cs-cerrar">Listo</button><button class="btn lg primary" id="guardar-stock">Guardar</button>`,
+      ${seguido && seguido.cargados.length ? `<div class="banner" style="border-radius:9px;border:1px solid var(--ok-line);background:var(--ok-wash);color:var(--ok-ink)">${icon('check', 14)} Ya cargaste: ${seguido.cargados.join(' · ')}</div>` : ''}`,
+    pie: `<button class="btn lg" id="cs-cerrar">Listo</button>
+      <button class="btn lg" id="guardar-stock-otro" title="Lo guarda y deja la ventana abierta para cargar otro">${icon('plus', 14)} Guardar y cargar otro</button>
+      <button class="btn lg primary" id="guardar-stock">Guardar</button>`,
     onMount: (el) => {
       const cont = el.querySelector('#cs-lineas');
       el.querySelectorAll('[data-ct]').forEach(b => b.addEventListener('click', () => {
@@ -445,20 +448,32 @@ function abrirCargaStock(pid, hecho){
         const falta = lineas[i] && lineas[i].p ? r.querySelector('[data-campo="cantidad"]') : r.querySelector('[data-campo="producto"]');
         return marcarFalta(falta, falta && falta.dataset.campo === 'cantidad' ? 'Poné la cantidad.' : 'Elegí el producto y poné la cantidad.');
       };
-      formulario(el, { botones: el.querySelector('#guardar-stock'), completo: validarCarga });
-      el.querySelector('#guardar-stock').addEventListener('click', async (ev) => {
+      const bGuardar = el.querySelector('#guardar-stock'), bOtro = el.querySelector('#guardar-stock-otro');
+      formulario(el, { botones: [bGuardar, bOtro], completo: validarCarga });
+      // otro = después de guardar, la ventana queda abierta y vacía para cargar lo siguiente
+      const guardarCarga = async (otro) => {
         if(!validarCarga()) return;
         const validas = leerCarga().filter(l => l.p && l.q > 0);
-        const b = ev.currentTarget; b.disabled = true;
+        bGuardar.disabled = true; bOtro.disabled = true;
         const fecha = el.querySelector('#cs-fecha').value || todayStr(), nota = el.querySelector('#cs-nota').value.trim();
         try{
           for(const l of validas) await registrarMovimiento(l.p, { tipo: cargaTipo, cantidad: l.q, nota, fecha });
           const signo = cargaTipo === 'salida' ? '−' : '+';
-          const resumen = validas.map(l => { const act = state.productos.find(x => x.id === l.p.id); return `${signo}${fmtNum(l.q)} ${esc(l.p.nombre)} (quedan ${fmtNum(act ? act.stock : 0)})`; }).join(' · ');
-          toast(`Stock cargado: ${resumen}.`);
-          cerrarPanel(); renderMenu(); refrescar();
-        }catch(e){ toastError('No se pudo cargar el stock', e); b.disabled = false; }
-      });
+          const partes = validas.map(l => { const act = state.productos.find(x => x.id === l.p.id); return `${signo}${fmtNum(l.q)} ${esc(l.p.nombre)} (quedan ${fmtNum(act ? act.stock : 0)})`; });
+          renderMenu(); refrescar();
+          if(otro){
+            toast(`Stock cargado: ${partes.join(' · ')}. Cargá lo siguiente.`);
+            abrirCargaStock(null, { cargados: [...(seguido ? seguido.cargados : []), ...partes], fecha });
+            return;
+          }
+          toast(`Stock cargado: ${partes.join(' · ')}.`);
+          cerrarPanel();
+        }catch(e){ toastError('No se pudo cargar el stock', e); bGuardar.disabled = false; bOtro.disabled = false; }
+      };
+      bGuardar.addEventListener('click', () => guardarCarga(false));
+      bOtro.addEventListener('click', () => guardarCarga(true));
+      // la ventana se reusa: arriba de todo para la próxima carga
+      if(seguido) setTimeout(() => { el.querySelector('.pbody').scrollTop = 0; }, 30);
       const primera = cont.querySelector(pid ? '[data-campo="cantidad"]' : 'select'); if(primera) setTimeout(() => primera.focus(), 40);
     }
   });
