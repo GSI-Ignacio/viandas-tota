@@ -111,9 +111,10 @@ function dialogoMovimiento(p, tipo, alTerminar){
   });
 }
 
-function abrirProducto(id){
+/* seguido = al cargar varios productos uno atrás de otro: los que ya se crearon y la unidad del último */
+function abrirProducto(id, seguido = null){
   const p = id ? state.productos.find(x => x.id === id) : null;
-  const d = p || { nombre: '', unidad: 'unidades', minimo: 0, porVianda: 0, activo: true, stock: 0 };
+  const d = p || { nombre: '', unidad: (seguido && seguido.unidad) || 'unidades', minimo: 0, porVianda: 0, activo: true, stock: 0 };
   const lectura = !esDueno();
   const cob = p ? coberturaProducto(p) : null;
   abrirPanel({
@@ -130,6 +131,8 @@ function abrirProducto(id){
           <button class="btn lg" data-m="salida">− Salida</button>
           <button class="btn lg" data-m="ajuste">${icon('editar', 14)} Ajustar al contado</button></div>` : ''}` : ''}
       ${lectura ? `<dl class="props" style="margin-top:16px"><dt>Unidad</dt><dd>${esc(d.unidad)}</dd><dt>Avisar con</dt><dd>${fmtNum(d.minimo)}</dd><dt>En cada vianda</dt><dd>${d.porVianda ? fmtNum(d.porVianda) : 'No'}</dd></dl>` : `
+      ${seguido && seguido.creados.length ? `<div class="banner" style="border-radius:9px;border:1px solid var(--ok-line);background:var(--ok-wash);color:var(--ok-ink);margin-bottom:14px">
+          ${icon('check', 14)} Ya agregaste: <b>${seguido.creados.map(esc).join(' · ')}</b></div>` : ''}
       <div class="psec" style="margin-top:${p ? 22 : 0}px"><h3>Producto</h3>
         <div class="field"><label for="f-prod-nombre">Nombre${REQ}</label><input type="text" id="f-prod-nombre" value="${esc(d.nombre)}" placeholder="Ej: Milanesas, Puré, Envases" autocomplete="off" ${p ? '' : 'autofocus'}>
           <div id="prod-existe"></div></div>
@@ -155,7 +158,9 @@ function abrirProducto(id){
       </div>`}
       ${p ? `<div class="psec"><h3>Movimientos</h3><div id="p-movs"><div class="skel" style="width:50%"></div></div></div>` : ''}
       ${p && !lectura ? `<div class="psec"><button class="btn lg danger" id="borrar-producto">${icon('borrar', 14)} Eliminar producto</button></div>` : ''}`,
-    pie: lectura ? '' : `<button class="btn lg" id="cancelar-prod">Cancelar</button><button class="btn lg primary" id="guardar-producto">${p ? 'Guardar cambios' : 'Crear producto'}</button>`,
+    pie: lectura ? '' : `<button class="btn lg" id="cancelar-prod">${seguido ? 'Listo' : 'Cancelar'}</button>
+      ${p ? '' : `<button class="btn lg" id="guardar-otro" title="Lo crea y deja la ventana abierta para cargar el siguiente">${icon('plus', 14)} Crear y agregar otro</button>`}
+      <button class="btn lg primary" id="guardar-producto">${p ? 'Guardar cambios' : 'Crear producto'}</button>`,
     onMount: async (el) => {
       el.querySelectorAll('[data-m]').forEach(b => b.addEventListener('click', () => dialogoMovimiento(p, b.dataset.m, () => { refrescar(); abrirProducto(p.id); })));
       const cancelar = el.querySelector('#cancelar-prod'); if(cancelar) cancelar.addEventListener('click', () => cerrarPanel());
@@ -173,10 +178,11 @@ function abrirProducto(id){
         const b = box.querySelector('#ir-cargar-existente'); if(b) b.addEventListener('click', () => abrirCargaStock(x.id));
       };
       if(nombreInp) nombreInp.addEventListener('input', avisarExiste);
-      const guardar = el.querySelector('#guardar-producto');
-      if(guardar) formulario(el, { botones: guardar, cambios: !!p,
+      const guardar = el.querySelector('#guardar-producto'), guardarOtro = el.querySelector('#guardar-otro');
+      if(guardar) formulario(el, { botones: [guardar, guardarOtro], cambios: !!p,
         completo: () => existente() ? marcarFalta(nombreInp, `Ya existe ${existente().nombre}: para sumarle stock usá Cargar stock.`) : true });
-      if(guardar) guardar.addEventListener('click', async () => {
+      // otro = después de crearlo, la ventana queda abierta y vacía para cargar el siguiente
+      const crear = async (otro) => {
         const nombre = el.querySelector('#f-prod-nombre').value.trim();
         if(!nombre){ marcarFalta(el.querySelector('#f-prod-nombre'), 'Poné un nombre para el producto.'); return; }
         if(existente()){ toast(`Ya existe <b>${esc(existente().nombre)}</b>: para sumarle stock usá Cargar stock.`, 'err'); return; }
@@ -186,15 +192,31 @@ function abrirProducto(id){
           porVianda: envase.checked ? (Number(el.querySelector('#f-prod-porvianda').value) || 1) : 0,
           esGuarnicion: el.querySelector('#f-prod-guarnicion').checked,
           activo: el.querySelector('#f-prod-activo').checked };
-        guardar.disabled = true;
+        guardar.disabled = true; if(guardarOtro) guardarOtro.disabled = true;
         try{
           const guardado = await guardarProducto(p ? p.id : null, datos);
           const ini = p ? 0 : Number(el.querySelector('#f-prod-inicial').value) || 0;
           if(ini) await registrarMovimiento(guardado, { tipo: 'entrada', cantidad: ini, nota: 'Stock inicial' });
+          refrescar();
+          if(otro){
+            toast(`<b>${esc(nombre)}</b> creado. Cargá el siguiente.`);
+            abrirProducto(null, { creados: [...(seguido ? seguido.creados : []), nombre], unidad });
+            return;
+          }
           toast(p ? 'Producto actualizado.' : 'Producto creado.');
-          cerrarPanel(); refrescar();
-        }catch(e){ toastError('No se pudo guardar el producto', e); guardar.disabled = false; }
-      });
+          cerrarPanel();
+        }catch(e){ toastError('No se pudo guardar el producto', e); guardar.disabled = false; if(guardarOtro) guardarOtro.disabled = false; }
+      };
+      if(guardar) guardar.addEventListener('click', () => crear(false));
+      if(guardarOtro) guardarOtro.addEventListener('click', () => crear(true));
+      if(guardarOtro){
+        // Enter en un campo = crear y seguir con el próximo
+        el.querySelectorAll('.pbody input:not([type="checkbox"])').forEach(x => x.addEventListener('keydown', (e) => {
+          if(e.key === 'Enter' && !guardarOtro.disabled){ e.preventDefault(); crear(true); }
+        }));
+        // la ventana se reusa: arriba de todo y el cursor en el nombre
+        if(seguido) setTimeout(() => { el.querySelector('.pbody').scrollTop = 0; nombreInp.focus(); }, 30);
+      }
       const borrar = el.querySelector('#borrar-producto');
       if(borrar) borrar.addEventListener('click', async () => {
         if(!(await confirmar('Eliminar producto', `¿Eliminar <b>${esc(p.nombre)}</b> y todos sus movimientos?`, { ok: 'Eliminar', peligro: true }))) return;
