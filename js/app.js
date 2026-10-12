@@ -66,6 +66,7 @@ function renderMenu(){
       <div class="menu" id="menu-usuario" role="menu" ${abierto ? '' : 'hidden'}>
         <div class="mwho"><div class="n" id="user-email">${esc(email)}</div><div class="r">${esc(rolTxt)}</div></div>
         ${esDueno() ? `<button class="mi" id="btn-usuarios" type="button" role="menuitem">${icon('equipo', 15)} Usuarios del negocio</button>
+          ${state.versionBase >= 13 ? `<button class="mi" id="btn-feriados" type="button" role="menuitem">${icon('calendario', 15)} Días sin entregas</button>` : ''}
           <button class="mi" id="btn-backup" type="button" role="menuitem">${icon('backup', 15)} Copia de seguridad</button>` : ''}
         <button class="mi" id="btn-logout" type="button" role="menuitem">${icon('salir', 15)} Salir</button>
       </div>
@@ -86,6 +87,7 @@ function renderMenu(){
   nav.querySelector('#btn-logout').addEventListener('click', async () => { cerrarMenu(); await sb.auth.signOut(); });
   const bk = nav.querySelector('#btn-backup'); if(bk) bk.addEventListener('click', () => { cerrarMenu(); openBackupModal(); });
   const bu = nav.querySelector('#btn-usuarios'); if(bu) bu.addEventListener('click', () => { cerrarMenu(); irA('equipo'); });
+  const bf = nav.querySelector('#btn-feriados'); if(bf) bf.addEventListener('click', () => { cerrarMenu(); abrirDiasCerrados(); });
 }
 
 function irA(tab, opciones){

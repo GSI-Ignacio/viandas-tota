@@ -120,6 +120,7 @@ function renderComandas(bar, main){
   const faltan = prods.filter(x => x.p.stock < 0);
   const totalDia = pedidosDelDia(f).filter(p => p.estado !== 'cancelada').reduce((s, p) => s + (p.total || 0), 0);
   main.innerHTML = `<div class="page">
+    ${avisoDiaCerradoHtml(comandaFecha)}
     <div class="kpis" style="margin-top:0">
       <div class="kpi ${rp.pendientes ? 'ped' : ''}"><b>${rp.pendientes}</b><span>pedidos por entregar · ${plural(rp.viandasPendientes, 'plato')}</span></div>
       <div class="kpi ok"><b>${rp.entregados}</b><span>entregados</span></div>
@@ -163,6 +164,7 @@ function renderComandas(bar, main){
     const pc = cont.querySelector('#primera-comanda'); if(pc) pc.addEventListener('click', () => abrirComanda(null, f, 'almuerzo'));
   }
   bindCartaDia(main);
+  bindAvisoDiaCerrado(main, refrescar);
   pintarLista();
 }
 
@@ -241,6 +243,7 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
          <p class="psub">${tipoTag(c)} Pedido del ${esc(formatFechaMedia(fecha))} ${ped ? '· ' + estadoPedidoTag(ped) : ''}</p>`}
       ${entregado ? `<div class="banner" style="border-radius:9px;border:1px solid var(--line);margin-bottom:12px">${icon('info', 14)} Ya se entregó y se descontó del stock. Para cambiarlo, volvelo a pendiente.
           ${puedeEditarComandas(fecha) ? '<button class="btn quiet" id="com-reabrir">Volver a pendiente</button>' : ''}</div>` : ''}
+      <div id="com-cerrado"></div>
       <div class="psec" style="margin-top:${nueva ? 6 : 12}px"><h3>Platos${REQ} <span class="sp"></span><span class="n" id="com-total"></span></h3>
         ${editable ? `<div class="com-tools">
           <button class="btn" type="button" id="com-repetir" title="Copiar el último pedido de este cliente">${icon('deshacer', 13)} Repetir el último pedido</button>
@@ -276,6 +279,10 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
         const conPlatos = ls.filter(l => l.cantidad > 0);
         const valor = conPlatos.some(l => l.precio == null) ? null : conPlatos.reduce((s, l) => s + l.precio * l.cantidad, 0);
         el.querySelector('#com-total').textContent = plural(tot, 'plato') + (valor != null && tot ? ' · ' + fmtPlata(valor) : '');
+        // día sin entregas: se avisa, pero el pedido se puede cargar igual
+        const fchA = (nueva && el.querySelector('#f-com-fecha') && el.querySelector('#f-com-fecha').value) || fecha, dc = diaCerrado(fchA), caja = el.querySelector('#com-cerrado');
+        const avisoTxt = dc ? `<div class="banner dia-cerrado">${icon('calendario', 15)}<span><b>${fchA === todayStr() ? 'Hoy' : 'Ese día'} no se trabaja${dc.motivo ? ` · ${esc(dc.motivo)}` : ''}.</b> Podés cargar el pedido igual.</span></div>` : '';
+        if(caja.innerHTML !== avisoTxt) caja.innerHTML = avisoTxt;
         // la pista solo hasta elegir el cliente: después, lo que falta se marca debajo de "Agregar plato"
         el.querySelector('#com-vacio').hidden = cont.children.length > 0 || !nueva || !!cli;
         const hint = el.querySelector('#com-precio-hint');

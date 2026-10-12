@@ -7,7 +7,7 @@
 -- vuelve a hacer y no se tocan los datos.
 --
 -- Cada actualización nueva se agrega al final de este archivo.
--- Adentro van, en orden, las versiones 5 a 12. Las anteriores (v2 a v4) ya están corridas;
+-- Adentro van, en orden, las versiones 5 a 13. Las anteriores (v2 a v4) ya están corridas;
 -- quedan en la carpeta migraciones/ como historial, junto con cada versión por separado.
 -- ============================================================
 
@@ -767,6 +767,43 @@ begin
 end $$;
 
 create or replace function version_base() returns integer language sql immutable as $$ select 12 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v13 — días sin entregas (feriados, vacaciones, cierres)
+--   Un día cerrado no tiene entregas de packs ni fijos: nadie usa créditos
+--   y "le alcanza hasta" lo saltea. Los pedidos se pueden cargar igual.
+-- ============================================================
+
+begin;
+
+create table if not exists dias_cerrados (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default mi_negocio(),
+  fecha date not null,
+  motivo text not null default '',
+  created_at timestamptz not null default now(),
+  constraint dias_cerrados_uno_por_dia unique (user_id, fecha)
+);
+
+alter table dias_cerrados enable row level security;
+drop policy if exists "leer" on dias_cerrados;
+drop policy if exists "cerrar" on dias_cerrados;
+drop policy if exists "abrir" on dias_cerrados;
+create policy "leer" on dias_cerrados for select using (user_id = mi_negocio());
+-- el dueño cualquier día; el ayudante, de hoy en adelante
+create policy "cerrar" on dias_cerrados for insert with check (
+  user_id = mi_negocio() and (mi_rol() = 'dueno' or (mi_rol() = 'ayudante' and fecha >= hoy_ar())));
+create policy "abrir" on dias_cerrados for delete using (
+  user_id = mi_negocio() and (mi_rol() = 'dueno' or (mi_rol() = 'ayudante' and fecha >= hoy_ar())));
+grant select, insert, delete on dias_cerrados to authenticated;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 13 $$;
 grant execute on function version_base() to authenticated;
 
 notify pgrst, 'reload schema';

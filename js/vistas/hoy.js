@@ -163,12 +163,14 @@ function renderHoy(bar, main){
   }) : '';
 
   main.innerHTML = `<div class="page">
+    ${avisoDiaCerradoHtml(hoy)}
     ${delDia.length ? `<div class="progress" style="margin-top:0">${progresoHtml(r, { sinPendientes: true })}</div>` : ''}
 
     <div class="hoy-grid">
       <div><div id="hoy-entregas">${bloques}</div>${bloquePedidos}
         ${!bloques && !bloquePedidos ? `<div class="clist"><div class="stub" style="margin:40px auto"><div class="ico">${icon('comanda', 20)}</div>
-        <h2>Nada para entregar hoy</h2><p>Los clientes con días fijos aparecen solos. Para un pedido particular, cargalo en Comandas.</p>
+        ${diaCerrado(hoy) ? `<h2>Hoy no se trabaja</h2><p>Los packs y fijos no reciben hoy. Si igual sale un pedido particular, cargalo acá.</p>`
+          : `<h2>Nada para entregar hoy</h2><p>Los clientes con días fijos aparecen solos. Para un pedido particular, cargalo en Comandas.</p>`}
         <button class="btn lg primary" id="nueva-comanda-vacio">${icon('plus', 14)} Nuevo pedido</button></div></div>` : ''}</div>
 
       <aside class="hoy-aside">
@@ -199,10 +201,11 @@ function renderHoy(bar, main){
           </div></section>` : ''}
 
         <section class="tsec">
-          <h2>${icon('reloj', 14)} Próximos días</h2>
+          <h2>${icon('reloj', 14)} Próximos días ${state.versionBase >= 13 && !esCadete() ? `<span class="sp"></span><button class="btn quiet" type="button" id="hoy-feriados" title="Feriados y días que no se trabaja">${icon('calendario', 13)} Feriados</button>` : ''}</h2>
           <div class="clist"><div class="flist">${Array.from({ length: 7 }, (_, i) => {
             const f = sumarDias(hoy, i), d = demandaDia(f);
-            return `<div class="fl click ${i === 0 ? 'today' : ''}" data-dia="${f}" role="button" tabindex="0" title="Ver la entrega de ese día"><span class="d">${esc(nombreDia(f))}</span><span class="muted">${plural(clientesDelDia(f).length, 'cliente')}</span><b>${d}</b>${icon('chevR', 13)}</div>`;
+            const dc = diaCerrado(f);
+            return `<div class="fl click ${i === 0 ? 'today' : ''} ${dc ? 'cerrado' : ''}" data-dia="${f}" role="button" tabindex="0" title="${dc ? `Sin entregas${dc.motivo ? ': ' + esc(dc.motivo) : ''}` : 'Ver la entrega de ese día'}"><span class="d">${esc(nombreDia(f))}</span>${dc ? `<span class="tag skip" title="${esc(dc.motivo)}">Sin entregas</span>` : `<span class="muted">${plural(clientesDelDia(f).length, 'cliente')}</span>`}<b>${d}</b>${icon('chevR', 13)}</div>`;
           }).join('')}</div></div>
         </section>
       </aside>
@@ -210,6 +213,8 @@ function renderHoy(bar, main){
   </div>`;
 
   main.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => irA(b.dataset.ir)));
+  bindAvisoDiaCerrado(main, refrescar);
+  const hf = main.querySelector('#hoy-feriados'); if(hf) hf.addEventListener('click', () => abrirDiasCerrados());
   bindCartaDia(main);
   bindRenovar(main, refrescar);
   main.querySelectorAll('[data-dia]').forEach(el => {
@@ -270,6 +275,7 @@ async function abrirDiaEntrega(fecha){
         <b>${esc(nombreDia(fecha))}</b><span class="muted">${esc(formatFechaLarga(fecha).replace(/^./, x => x.toUpperCase()))}</span>
         <button class="iconbtn" type="button" data-dia-ir="1" aria-label="Día siguiente" title="Día siguiente">${icon('chevR', 15)}</button>
       </div>
+      ${avisoDiaCerradoHtml(fecha)}
       <div class="echips">
         <span class="echip pk ${vPacks ? '' : 'cero'}"><i></i><b>${vPacks}</b>viandas de packs</span>
         <span class="echip pd ${platos ? '' : 'cero'}"><i></i><b>${platos}</b>platos de pedidos</span>
@@ -277,16 +283,20 @@ async function abrirDiaEntrega(fecha){
       </div>
       <p class="dia-menu">${icon('menu', 14)} ${menus.length ? `Menú del día: <b>${menus.map(m => esc(m.nombre)).join(' · ')}</b>` : '<span class="muted">Todavía no se eligió el menú de este día.</span>'}</p>
       <div class="psec" style="margin-top:14px"><h3>Packs y fijos <span class="n">${plural(filas.length, 'entrega')}</span></h3>
-        <div class="clist">${filas.length ? filas.map(filaPack).join('') : `<div class="calm">${icon('check')} No hay viandas de packs programadas.</div>`}</div>
+        <div class="clist">${filas.length ? filas.map(filaPack).join('') : `<div class="calm">${icon('check')} ${diaCerrado(fecha) ? 'Día sin entregas: los packs y fijos no reciben.' : 'No hay viandas de packs programadas.'}</div>`}</div>
         ${sinCred ? `<p class="muted" style="font-size:13px;margin:8px 2px 0">"Sin créditos ese día": con lo que va a recibir hasta entonces no le alcanza.${state.versionBase >= 11 ? ' Se le entrega igual y queda debiendo;' : ''} conviene renovarle el pack antes.</p>` : ''}</div>
       <div class="psec"><h3>Pedidos <span class="n">${plural(pedidos.length, 'pedido')}</span></h3>
         <div class="clist">${pedidos.length ? pedidos.map(filaPedido).join('') : `<div class="calm">${icon('comanda')} Todavía no hay pedidos cargados para este día.</div>`}</div></div>`,
-    pie: `${puedeEditarComandas(fecha) ? `<button class="btn lg" id="dia-pedido">${icon('plus', 14)} Nuevo pedido para este día</button>` : ''}<span class="sp"></span>
+    pie: `${puedeEditarComandas(fecha) ? `<button class="btn lg" id="dia-pedido">${icon('plus', 14)} Nuevo pedido para este día</button>` : ''}
+      ${!diaCerrado(fecha) && puedeCerrarDias(fecha) ? `<button class="btn lg" id="dia-cerrar-dia" title="Feriado, vacaciones: ese día no se entrega">${icon('calendario', 14)} Marcar sin entregas</button>` : ''}<span class="sp"></span>
       <button class="btn lg primary" id="dia-cerrar">Listo</button>`,
     onMount: (el) => {
       el.querySelector('#dia-cerrar').addEventListener('click', () => cerrarPanel());
       el.querySelectorAll('[data-dia-ir]').forEach(b => b.addEventListener('click', () => abrirDiaEntrega(sumarDias(fecha, Number(b.dataset.diaIr)))));
       const np = el.querySelector('#dia-pedido'); if(np) np.addEventListener('click', () => abrirComanda(null, fecha, 'almuerzo'));
+      const otraVez = () => { refrescar(); abrirDiaEntrega(fecha); };
+      bindAvisoDiaCerrado(el, otraVez);
+      const cd = el.querySelector('#dia-cerrar-dia'); if(cd) cd.addEventListener('click', () => dialogoCerrarDia(fecha, otraVez));
       el.querySelectorAll('[data-dia-cli]').forEach(r => {
         const abrir = () => { irA('clientes'); abrirCliente(r.dataset.diaCli); };
         r.addEventListener('click', abrir);

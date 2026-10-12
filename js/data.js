@@ -24,11 +24,12 @@ const state = {
   cartaDia: [],        // { id, fecha, menuId, guarnicionId }: los menús del día y las guarniciones de cada fecha
   comandas: {},        // `${clienteId}|${fecha}|${turno}` → filas de la comanda (un menú por fila)
   comandasGeneradas: new Set(), // fechas cuyas comandas ya se trajeron en esta sesión
+  diasCerrados: {},    // fecha → { id, motivo }: días sin entregas (feriados, vacaciones)
 };
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 12;
+const VERSION_BASE_APP = 13;
 
 /* ---------- roles ---------- */
 const esDueno = () => state.perfil.rol === 'dueno';
@@ -192,6 +193,39 @@ async function cargarDatos(){
   guardarComandasEnEstado(comandas);
   state.cartaDia = carta.map(mapCartaDia);
   await recargarCuentasPedidos().catch(() => { state.cuentasPedidos = {}; });
+  await recargarDiasCerrados().catch(() => { state.diasCerrados = {}; });
+}
+
+/* ---------- días sin entregas (desde la v13) ---------- */
+const diaCerrado = (fecha) => (state.diasCerrados || {})[fecha] || null;   // { id, motivo } o null
+// el dueño cualquier día; el ayudante, de hoy en adelante
+const puedeCerrarDias = (fecha) => state.versionBase >= 13 && !esCadete() && (esDueno() || fecha >= todayStr());
+async function recargarDiasCerrados(){
+  if(state.versionBase < 13){ state.diasCerrados = {}; return; }
+  const filas = await traerTodo(() => sb.from('dias_cerrados').select('*').gte('fecha', sumarDias(todayStr(), -90)).order('fecha'));
+  state.diasCerrados = Object.fromEntries(filas.map(r => [r.fecha, { id: r.id, motivo: r.motivo || '' }]));
+}
+async function cerrarDias(dias){   // [{ fecha, motivo }]
+  const filas = dias.filter(d => !diaCerrado(d.fecha)).map(d => ({ fecha: d.fecha, motivo: (d.motivo || '').trim() }));
+  if(!filas.length) return 0;
+  const { data, error } = await sb.from('dias_cerrados').insert(filas).select();
+  if(error) throw error;
+  for(const r of data || []) state.diasCerrados[r.fecha] = { id: r.id, motivo: r.motivo || '' };
+  return filas.length;
+}
+async function abrirDiaCerrado(fecha){
+  const d = diaCerrado(fecha); if(!d) return;
+  const { error } = await sb.from('dias_cerrados').delete().eq('id', d.id);
+  if(error) throw error;
+  delete state.diasCerrados[fecha];
+}
+/* Feriados nacionales de Argentina de un año (servicio público argentinadatos.com). */
+async function feriadosNacionales(anio){
+  const r = await fetch(`https://api.argentinadatos.com/v1/feriados/${anio}`);
+  if(!r.ok) throw new Error('No se pudieron traer los feriados.');
+  const lista = await r.json();
+  return (Array.isArray(lista) ? lista : []).map(x => ({ fecha: x.fecha, nombre: x.nombre || 'Feriado', tipo: x.tipo || '' }))
+    .filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x.fecha));
 }
 const mapCartaDia = (r) => ({ id: r.id, fecha: r.fecha, menuId: r.menu_id || null, guarnicionId: r.guarnicion_id || null });
 async function recargarCartaDia(fecha){
@@ -238,7 +272,8 @@ function consumoEntrega(e){
   if(!e) return 0;
   return (cuentaComoVianda(e.almuerzo) ? (e.cantAlmuerzo ?? 1) : 0) + (cuentaComoVianda(e.cena) ? (e.cantCena ?? 1) : 0);
 }
-function programadoEn(c, fecha){ return c.activo && c.dias.includes(diaSemana(fecha)) && viandasPorDia(c) > 0; }
+// un día cerrado (feriado, vacaciones) no hay entregas de packs ni fijos: no usan créditos y "le alcanza" lo saltea
+function programadoEn(c, fecha){ return c.activo && c.dias.includes(diaSemana(fecha)) && viandasPorDia(c) > 0 && !diaCerrado(fecha); }
 function tieneRegistro(c, fecha){ const e = getEntrega(c.id, fecha); return !!(e && (e.almuerzo || e.cena)); }
 
 /* ---------- comandas ---------- */

@@ -270,6 +270,23 @@ svg{display:block;flex:none}
 .hist.hz .t{display:flex;flex-direction:column;gap:4px;white-space:normal;overflow:visible;color:var(--text)}
 .hist.hz .v{padding-top:2px;color:var(--text-2)}
 .hz-i .tag{margin-left:4px}
+/* días sin entregas */
+.banner.dia-cerrado{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-radius:10px;margin:0 0 14px;
+  border:1px solid color-mix(in srgb,var(--skip) 55%,transparent);background:color-mix(in srgb,var(--skip) 14%,var(--panel));color:var(--text)}
+.banner.dia-cerrado svg{color:var(--skip-ink);flex:none}
+.banner.dia-cerrado span{flex:1;min-width:200px}
+.fl.cerrado .d{color:var(--text-3)}
+.fl.cerrado b{color:var(--text-3)}
+.dc-form{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.dc-form .field{flex:1;min-width:160px}
+.dc-form .btn{margin-bottom:14px;white-space:nowrap;flex:none}
+.fer-lista{padding:4px 12px}
+.check.fer-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);margin:0}
+.check.fer-row:last-child{border-bottom:0}
+.check.fer-row .w{width:104px;flex:none;color:var(--text-2);font-variant-numeric:tabular-nums}
+.check.fer-row .t{flex:1;min-width:0}
+.check.fer-row .muted{font-size:12.5px}
+.check.fer-row.off{opacity:.6}
 .form-aviso:empty{display:none}
 .btn.primary:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 .inp.invalido,.field .invalido,.sel-btn.invalido,.cline .invalido{border-color:var(--bad)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 18%,transparent)!important}
