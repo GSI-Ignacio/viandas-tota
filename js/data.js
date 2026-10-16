@@ -44,6 +44,7 @@ function mapCliente(r){
   return {
     id: r.id, nombre: r.nombre, tipo: r.tipo || 'casual', empresaNombre: r.empresa_nombre || '',
     telefono: r.telefono || '', notas: r.notas || '', activo: r.activo !== false,
+    creado: r.created_at ? isoLocal(new Date(r.created_at)) : null,   // día del alta (hora local)
     direccion: r.direccion || '', referencia: r.referencia || '',
     lat: r.lat == null ? null : Number(r.lat), lng: r.lng == null ? null : Number(r.lng),
     dias: Array.isArray(r.dias) ? r.dias.map(Number) : [1, 2, 3, 4, 5],
@@ -411,6 +412,24 @@ function resumenDia(fecha, lista){
 }
 function turnoPendiente(c, fecha, turno){ const e = getEntrega(c.id, fecha); return !(e && e[turno]); }
 function clientePendiente(c, fecha){ return turnosDe(c, fecha).some(t => turnoPendiente(c, fecha, t)); }
+// ¿Ya era cliente ese día? (los días antes del alta no cuentan como entregas sin marcar)
+const yaEraCliente = (c, fecha) => !c.creado || c.creado <= fecha;
+/* Entregas de packs y fijos de los últimos días que quedaron sin marcar, del más nuevo al más viejo:
+   [{ fecha, items: [{ c, turno, n }] }]. Solo días ya cargados; no cuentan los días sin entregas. */
+function sinMarcarDias(dias = 7){
+  const hoy = todayStr(), res = [];
+  for(let i = 1; i <= dias; i++){
+    const f = sumarDias(hoy, -i);
+    if(!state.fechasCargadas.has(f)) continue;
+    const items = [];
+    for(const c of clientesDelDia(f)){
+      if(!yaEraCliente(c, f)) continue;
+      for(const t of turnosDe(c, f)) if(turnoPendiente(c, f, t)) items.push({ c, turno: t, n: viandasTurno(c, f, t) });
+    }
+    if(items.length) res.push({ fecha: f, items });
+  }
+  return res;
+}
 
 /* ---------- saldo de viandas ---------- */
 const saldoDe = (id) => (state.saldos[id] ? state.saldos[id].saldo : 0);

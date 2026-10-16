@@ -74,6 +74,26 @@ function filaSinCreditoHtml(c, fecha, turno){
 
 const hoyPlegadas = new Set();   // "Ya registradas" que se plegaron a mano: se respetan al actualizar
 
+/* Viandas de días anteriores sin marcar: es grave (los créditos y el stock quedan mal), así que va
+   arriba de todo, en rojo y con un brillo que va y viene. Cada día es un botón que lo abre para marcarlo. */
+function avisoSinMarcarHtml(dias){
+  if(!dias.length) return '';
+  const total = dias.reduce((s, d) => s + d.items.reduce((a, x) => a + x.n, 0), 0);
+  const viejo = dias.at(-1).fecha, hace = Math.round((parseFecha(todayStr()) - parseFecha(viejo)) / 864e5);
+  return `<section class="sin-marcar" role="alert" id="sec-sinmarcar">
+    <div class="sm-ico" aria-hidden="true">${icon('alerta', 20)}</div>
+    <div class="sm-txt">
+      <b>${total === 1 ? 'Falta marcar 1 vianda' : `Faltan marcar ${total} viandas`} de días anteriores</b>
+      <span>La más vieja es del ${esc(formatFechaMedia(viejo))} (hace ${plural(hace, 'día')}). Mientras no se marquen, los créditos y el stock quedan mal.</span>
+    </div>
+    <div class="sm-dias">${dias.map(d => {
+      const v = d.items.reduce((s, x) => s + x.n, 0), nombres = [...new Set(d.items.map(x => x.c.nombre))];
+      return `<button class="sm-dia" type="button" data-dia="${d.fecha}" title="${esc(nombres.join(', '))}: tocá para marcar">
+        <b>${esc(formatFechaMedia(d.fecha))}</b><span>${plural(v, 'vianda')}</span></button>`;
+    }).join('')}</div>
+  </section>`;
+}
+
 function renderHoy(bar, main){
   const hoy = todayStr();
   const r = resumenDia(hoy);
@@ -85,6 +105,8 @@ function renderHoy(bar, main){
   const faltanHoy = state.productos.filter(p => p.activo && p.stock >= 0 && necesita[p.id] > p.stock);
   const bajos = productosBajos().filter(p => p.stock >= 0 && !faltanHoy.includes(p));
   const clientesPend = delDia.filter(c => clientePendiente(c, hoy));
+  // entregas de los últimos días que quedaron sin marcar (solo la dueña puede marcar días pasados)
+  const sinMarcar = esDueno() ? sinMarcarDias(7) : [];
   const pedidos = pedidosDelDia(hoy);
   const rp = resumenPedidos(hoy);
 
@@ -163,6 +185,7 @@ function renderHoy(bar, main){
   }) : '';
 
   main.innerHTML = `<div class="page">
+    ${avisoSinMarcarHtml(sinMarcar)}
     ${avisoDiaCerradoHtml(hoy)}
     ${delDia.length ? `<div class="progress" style="margin-top:0">${progresoHtml(r, { sinPendientes: true })}</div>` : ''}
 
@@ -236,19 +259,23 @@ function renderHoy(bar, main){
 async function abrirDiaEntrega(fecha){
   try{ if(!state.fechasCargadas.has(fecha)) await asegurarFecha(fecha); }catch(e){ toastError('No se pudo cargar ese día', e); return; }
   const hoy = todayStr();
+  // un día pasado se marca acá mismo (la dueña); los futuros y el de hoy, se miran
+  const pasado = fecha < hoy, marcar = pasado && puedeRegistrarEn(fecha);
   const ESTADO = { entregado: ['ok', 'Entregado'], no_recibido: ['bad', 'No lo recibió'], saltado: ['skip', 'Salteado'] };
   const filas = [];
-  let vPacks = 0, sinCred = 0;
+  let vPacks = 0, sinCred = 0, pendientes = 0;
   for(const c of clientesDelDia(fecha)){
+    if(pasado && !yaEraCliente(c, fecha)) continue;
     for(const t of turnosDe(c, fecha)){
       const n = viandasTurno(c, fecha, t), e = getEntrega(c.id, fecha), est = e && e[t];
-      const falta = usaCreditos(c) && !cuentaComoVianda(est) && est !== 'saltado' && saldoProyectado(c, fecha) < n;
+      const falta = !pasado && usaCreditos(c) && !cuentaComoVianda(est) && est !== 'saltado' && saldoProyectado(c, fecha) < n;
       if(est !== 'saltado') vPacks += n;
       if(falta) sinCred++;
-      filas.push({ c, n, est, falta });
+      if(!est) pendientes++;
+      filas.push({ c, n, est, falta, t });
     }
   }
-  filas.sort((a, b) => (b.falta - a.falta) || a.c.nombre.localeCompare(b.c.nombre, 'es'));
+  filas.sort((a, b) => (b.falta - a.falta) || (marcar ? !!a.est - !!b.est : 0) || a.c.nombre.localeCompare(b.c.nombre, 'es'));
   const pedidos = pedidosDelDia(fecha).filter(p => p.estado !== 'cancelada');
   const platos = pedidos.reduce((s, p) => s + p.viandas, 0);
   const menus = menusDelDia(fecha);
@@ -282,8 +309,10 @@ async function abrirDiaEntrega(fecha){
         ${sinCred ? `<span class="echip bad"><i></i><b>${sinCred}</b>sin créditos ese día</span>` : ''}
       </div>
       <p class="dia-menu">${icon('menu', 14)} ${menus.length ? `Menú del día: <b>${menus.map(m => esc(m.nombre)).join(' · ')}</b>` : '<span class="muted">Todavía no se eligió el menú de este día.</span>'}</p>
-      <div class="psec" style="margin-top:14px"><h3>Packs y fijos <span class="n">${plural(filas.length, 'entrega')}</span></h3>
-        <div class="clist">${filas.length ? filas.map(filaPack).join('') : `<div class="calm">${icon('check')} ${diaCerrado(fecha) ? 'Día sin entregas: los packs y fijos no reciben.' : 'No hay viandas de packs programadas.'}</div>`}</div>
+      <div class="psec" style="margin-top:14px"><h3>Packs y fijos <span class="n">${plural(filas.length, 'entrega')}${marcar && pendientes ? ` · ${pendientes} sin marcar` : ''}</span></h3>
+        ${marcar && pendientes ? `<div class="banner sm-panel">${icon('alerta', 15)}<span><b>${pendientes === 1 ? 'Falta marcar 1 entrega' : `Faltan marcar ${pendientes} entregas`} de este día.</b> Marcá lo que se entregó: usa los créditos y el stock de ese día.</span></div>`
+          : marcar && filas.length ? `<p class="help" style="margin:-2px 0 8px">Día pasado: ya está todo marcado.</p>` : ''}
+        <div class="clist ${marcar ? 'lista-dia' : ''}" id="dia-packs">${filas.length ? filas.map(x => marcar ? filaTurnoHtml(x.c, fecha, x.t) : filaPack(x)).join('') : `<div class="calm">${icon('check')} ${diaCerrado(fecha) ? 'Día sin entregas: los packs y fijos no reciben.' : 'No hay viandas de packs programadas.'}</div>`}</div>
         ${sinCred ? `<p class="muted" style="font-size:13px;margin:8px 2px 0">"Sin créditos ese día": con lo que va a recibir hasta entonces no le alcanza.${state.versionBase >= 11 ? ' Se le entrega igual y queda debiendo;' : ''} conviene renovarle el pack antes.</p>` : ''}</div>
       <div class="psec"><h3>Pedidos <span class="n">${plural(pedidos.length, 'pedido')}</span></h3>
         <div class="clist">${pedidos.length ? pedidos.map(filaPedido).join('') : `<div class="calm">${icon('comanda')} Todavía no hay pedidos cargados para este día.</div>`}</div></div>`,
@@ -296,6 +325,7 @@ async function abrirDiaEntrega(fecha){
       const np = el.querySelector('#dia-pedido'); if(np) np.addEventListener('click', () => abrirComanda(null, fecha, 'almuerzo'));
       const otraVez = () => { refrescar(); abrirDiaEntrega(fecha); };
       bindAvisoDiaCerrado(el, otraVez);
+      if(marcar) bindEntregaRows(el.querySelector('#dia-packs'), fecha, otraVez, { deshacer: true });
       const cd = el.querySelector('#dia-cerrar-dia'); if(cd) cd.addEventListener('click', () => dialogoCerrarDia(fecha, otraVez));
       el.querySelectorAll('[data-dia-cli]').forEach(r => {
         const abrir = () => { irA('clientes'); abrirCliente(r.dataset.diaCli); };

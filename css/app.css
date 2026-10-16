@@ -287,6 +287,30 @@ svg{display:block;flex:none}
 .check.fer-row .t{flex:1;min-width:0}
 .check.fer-row .muted{font-size:12.5px}
 .check.fer-row.off{opacity:.6}
+/* viandas de días anteriores sin marcar: arriba de Hoy, en rojo, con un brillo que va y viene */
+.sin-marcar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 18px;margin:0 0 18px;border-radius:14px;
+  border:1px solid color-mix(in srgb,var(--bad) 75%,transparent);background:color-mix(in srgb,var(--bad) 13%,var(--panel));
+  animation:sm-brillo 2.4s ease-in-out infinite}
+@keyframes sm-brillo{
+  0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--bad) 0%,transparent),0 0 0 0 color-mix(in srgb,var(--bad) 0%,transparent)}
+  50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--bad) 22%,transparent),0 0 30px 6px color-mix(in srgb,var(--bad) 38%,transparent)}}
+.sm-ico{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--bad);color:var(--on-fill);
+  animation:sm-latido 2.4s ease-in-out infinite}
+@keyframes sm-latido{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+.sm-txt{flex:1;min-width:240px;display:flex;flex-direction:column;gap:3px}
+.sm-txt b{font-size:16px;font-weight:650;color:var(--text)}
+.sm-txt span{font-size:13px;color:var(--text-2);line-height:1.45}
+.sm-dias{display:flex;gap:8px;flex-wrap:wrap}
+.sm-dia{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:84px;padding:7px 12px;border-radius:10px;cursor:pointer;font:inherit;
+  border:1px solid color-mix(in srgb,var(--bad) 65%,transparent);background:var(--panel);color:var(--text);transition:background var(--t-fast) linear}
+.sm-dia:hover{background:color-mix(in srgb,var(--bad) 20%,var(--panel))}
+.sm-dia b{font-size:13.5px;font-weight:600;text-transform:capitalize}
+.sm-dia span{font-size:12px;font-weight:600;color:var(--bad-ink)}
+.banner.sm-panel{display:flex;align-items:center;gap:10px;border-radius:10px;margin:0 0 10px;
+  border:1px solid color-mix(in srgb,var(--bad) 60%,transparent);background:color-mix(in srgb,var(--bad) 12%,var(--panel));color:var(--text)}
+.banner.sm-panel svg{color:var(--bad);flex:none}
+@media (prefers-reduced-motion: reduce){.sin-marcar,.sm-ico{animation:none}}
+@media (max-width:760px){.sin-marcar{padding:12px 14px}.sm-dia{min-width:0;flex:1 1 calc(33% - 8px)}}
 .form-aviso:empty{display:none}
 .btn.primary:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 .inp.invalido,.field .invalido,.sel-btn.invalido,.cline .invalido{border-color:var(--bad)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 18%,transparent)!important}
