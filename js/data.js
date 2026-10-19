@@ -91,7 +91,8 @@ function mapProducto(r){
 function mapComanda(r){
   return { id: r.id, clienteId: r.cliente_id, fecha: r.fecha, turno: r.turno, menuId: r.menu_id || null, guarnicionId: r.guarnicion_id || null,
            cantidad: Number(r.cantidad) || 0, nota: r.nota || '', origen: r.origen || 'manual',
-           estado: r.estado || 'pendiente', precio: r.precio == null ? null : Number(r.precio), formaPago: r.forma_pago || null };
+           estado: r.estado || 'pendiente', precio: r.precio == null ? null : Number(r.precio), formaPago: r.forma_pago || null,
+           creado: r.created_at || null };
 }
 const clave = (clienteId, fecha) => clienteId + '|' + fecha;
 const claveT = (clienteId, fecha, turno) => clienteId + '|' + fecha + '|' + turno;
@@ -325,7 +326,9 @@ function pedidoDe(clienteId, fecha){
   if(!lineas.length) return null;
   const estado = lineas.every(l => l.estado === 'entregada') ? 'entregada' : lineas.every(l => l.estado === 'cancelada') ? 'cancelada' : 'pendiente';
   const forma = (lineas.find(l => l.formaPago) || {}).formaPago || null;
-  return { clienteId, fecha, lineas, estado, viandas: lineas.reduce((s, l) => s + l.cantidad, 0), total: valorPedido(lineas), formaPago: forma };
+  // cuándo se cargó: la primera de sus líneas (los pedidos se ordenan así, el primero arriba)
+  const creado = lineas.map(l => l.creado).filter(Boolean).sort()[0] || null;
+  return { clienteId, fecha, lineas, estado, viandas: lineas.reduce((s, l) => s + l.cantidad, 0), total: valorPedido(lineas), formaPago: forma, creado };
 }
 /* Cómo se paga un pedido: la forma elegida o, si no tiene (pedidos viejos), a cuenta para sanatorios y empresas. */
 function formaDePedido(ped){
@@ -339,7 +342,12 @@ function totalesPorForma(fecha){
   for(const p of pedidosDelDia(fecha)) if(p.estado !== 'cancelada') t[formaDePedido(p)] += p.total || 0;
   return t;
 }
-function pedidosDelDia(fecha){ return state.clientes.map(c => pedidoDe(c.id, fecha)).filter(Boolean); }
+// en orden cronológico: el que se cargó primero, primero
+function pedidosDelDia(fecha){
+  return state.clientes.map(c => pedidoDe(c.id, fecha)).filter(Boolean)
+    .sort((a, b) => String(a.creado || '').localeCompare(String(b.creado || '')));
+}
+const horaPedido = (ped) => ped && ped.creado ? new Date(ped.creado).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
 function valorPedido(lineas){
   let total = 0;
   for(const l of lineas){ const precio = l.precio != null ? l.precio : (menuPorId(l.menuId) || {}).precio; if(precio == null) return null; total += precio * l.cantidad; }

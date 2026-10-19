@@ -708,9 +708,23 @@ svg{display:block;flex:none}
 @media (prefers-reduced-motion:reduce){.ld-orbit b{animation-duration:9s!important}}
 
 /* ---------- hoy ---------- */
+/* Comandas: la lista y, al costado, los totales de cocina */
 .hoy-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,390px);gap:28px;align-items:start;margin-top:26px}
-.hoy-aside{display:flex;flex-direction:column;gap:26px;position:sticky;top:0}
+.hoy-grid > .hoy-aside{position:sticky;top:0}
+@media (max-width:1100px){.hoy-grid{grid-template-columns:minmax(0,1fr)}.hoy-grid > .hoy-aside{position:static}}
+/* Hoy en una pantalla: avisos arriba y tres columnas (viandas, pedidos, lo demás) que se desplazan cada una por su cuenta */
+.page.hoy-page{height:100%;display:flex;flex-direction:column;padding-bottom:18px;box-sizing:border-box}
+.hoy-cols{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(280px,340px);gap:22px;margin-top:22px}
+.hoy-col{min-height:0;overflow:auto;overscroll-behavior:contain;container-type:inline-size;scrollbar-width:thin;padding:0 4px 8px 0}
+.hoy-col .bloque-h{position:sticky;top:0;z-index:3;padding-bottom:10px;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(8px)}
+.hoy-col .bloque-h h2{margin-top:0}
+.hoy-aside{display:flex;flex-direction:column;gap:22px}
 .hoy-aside .tsec{margin-top:0}
+/* columnas angostas: los botones de cada entrega muestran solo el ícono */
+@container (max-width: 600px){
+  .mbtns.lg .mb .lbl,.deshacer .mb .lbl{display:none}
+  .trow{padding:12px 14px;gap:10px}
+}
 .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:24px}
 .kpi{position:relative;display:flex;flex-direction:column-reverse;justify-content:flex-end;gap:10px;border:1px solid var(--line);border-radius:var(--r-card);
   padding:20px 22px 22px;text-align:left;background:var(--panel-2);overflow:hidden;
@@ -820,7 +834,13 @@ details.hechas2:not([open]) > summary{border-bottom:0}
 .flist .fl .d{flex:1;color:var(--text-2);text-transform:capitalize}
 .flist .fl b{font-variant-numeric:tabular-nums}
 .flist .fl.today{background:var(--warn-wash)}
-@media (max-width:1100px){.hoy-grid{grid-template-columns:minmax(0,1fr)}.hoy-aside{position:static}}
+@media (max-width:1180px){
+  .page.hoy-page{height:auto;display:block}
+  .hoy-cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .hoy-col{overflow:visible}
+  .hoy-aside{grid-column:1 / -1;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start}
+}
+@media (max-width:760px){.hoy-cols{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:640px){
   .kpis{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
   .kpi{padding:12px 12px 14px;gap:8px}.kpi b{font-size:26px}.kpi span::before{display:none}
@@ -837,9 +857,9 @@ details.hechas2:not([open]) > summary{border-bottom:0}
 
 /* ---------- entrada escalonada: las tarjetas aparecen de a una ---------- */
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.view.enter .kpis > *,.view.enter .hoy-grid > div > *,.view.enter .hoy-aside > *,.view.enter .page > .tsec{animation:rise .45s var(--ease) both}
+.view.enter .kpis > *,.view.enter .hoy-col > *,.view.enter .page > .tsec{animation:rise .45s var(--ease) both}
 .view.enter .kpis > :nth-child(2){animation-delay:.04s} .view.enter .kpis > :nth-child(3){animation-delay:.08s}
-.view.enter .hoy-grid > div > :nth-child(1){animation-delay:.1s} .view.enter .hoy-grid > div > :nth-child(2){animation-delay:.16s}
+.view.enter .hoy-col:nth-child(1) > *{animation-delay:.08s} .view.enter .hoy-col:nth-child(2) > *{animation-delay:.14s}
 .view.enter .hoy-aside > :nth-child(1){animation-delay:.12s} .view.enter .hoy-aside > :nth-child(2){animation-delay:.18s}
 .view.enter .hoy-aside > :nth-child(3){animation-delay:.24s} .view.enter .hoy-aside > :nth-child(n+4){animation-delay:.3s}
 .meter i{border-radius:999px}
@@ -1243,3 +1263,5 @@ body{background:radial-gradient(1000px 520px at 8% -10%,var(--glow),transparent 
   .pn-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .pn-sub{margin-left:0}
 }
+
+.trow .s .hora{font-variant-numeric:tabular-nums;color:var(--text-2);font-weight:600}

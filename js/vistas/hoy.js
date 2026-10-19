@@ -73,6 +73,7 @@ function filaSinCreditoHtml(c, fecha, turno){
 }
 
 const hoyPlegadas = new Set();   // "Ya registradas" que se plegaron a mano: se respetan al actualizar
+const hoyScroll = [];            // hasta dónde estaba cada columna de Hoy
 
 /* Viandas de días anteriores sin marcar: es grave (los créditos y el stock quedan mal), así que va
    arriba de todo, en rojo y con un brillo que va y viene. Cada día es un botón que lo abre para marcarlo. */
@@ -100,10 +101,6 @@ function renderHoy(bar, main){
   const delDia = clientesDelDia(hoy);
   // a cuenta: lo que deben en viandas fijas y en plata de pedidos (v10)
   const deben = [...new Set([...clientesQueDeben(), ...clientesDebenPedidos()])];
-  const necesita = necesidadProductos(hoy, { soloPendiente: true });
-  const negativos = productosNegativos();
-  const faltanHoy = state.productos.filter(p => p.activo && p.stock >= 0 && necesita[p.id] > p.stock);
-  const bajos = productosBajos().filter(p => p.stock >= 0 && !faltanHoy.includes(p));
   const clientesPend = delDia.filter(c => clientePendiente(c, hoy));
   // entregas de los últimos días que quedaron sin marcar (solo la dueña puede marcar días pasados)
   const sinMarcar = esDueno() ? sinMarcarDias(7) : [];
@@ -125,12 +122,11 @@ function renderHoy(bar, main){
   const chipsHtml = (chips) => `<div class="echips">${chips.filter(x => x.siempre || x.n).map(x =>
     `<span class="echip ${x.cls} ${x.n ? '' : 'cero'}"><i></i><b>${x.n}</b>${esc(x.label)}</span>`).join('')}</div>`;
   const bloque = ({ titulo, id, attrs = '', chips, nPend, pendHtml, vacio, extraHtml, hechasTitulo, nHechas, hechasHtml, clave }) => `
-    <section class="tsec bloque-dia ${id === 'hoy-pedidos' ? 'pd' : 'pk'}" style="margin-top:0;margin-bottom:26px" ${id ? `id="${id}"` : ''} ${attrs}>
-      <h2>${titulo}</h2>
-      ${chipsHtml(chips)}
+    <section class="tsec bloque-dia ${id === 'hoy-pedidos' ? 'pd' : 'pk'}" style="margin-top:0;margin-bottom:22px" ${id ? `id="${id}"` : ''} ${attrs}>
+      <div class="bloque-h"><h2>${titulo}</h2>${chipsHtml(chips)}</div>
       <div class="clist lista-dia">
-        <div class="lhead pend"><i></i>Falta entregar <span class="n">${nPend}</span></div>
-        ${pendHtml || `<div class="calm">${icon('check')} ${vacio}</div>`}
+        ${nPend ? `<div class="lhead pend"><i></i>Falta entregar <span class="n">${nPend}</span></div>` : ''}
+        ${pendHtml || `<div class="calm">${icon('check')}<span>${vacio}</span></div>`}
       </div>
       ${extraHtml || ''}
       ${nHechas ? `<details class="clist lista-dia hechas2" data-plegado="${clave}" ${hoyPlegadas.has(clave) ? '' : 'open'}>
@@ -172,31 +168,33 @@ function renderHoy(bar, main){
   // pedidos particulares (comandas): aparte de los packs
   const pedPend = pedidos.filter(p => p.estado === 'pendiente'), pedHechos = pedidos.filter(p => p.estado !== 'pendiente');
   pedHechos.sort((a, b) => (a.estado === 'entregada' ? 0 : 1) - (b.estado === 'entregada' ? 0 : 1));
-  const bloquePedidos = pedidos.length ? bloque({
+  const bloquePedidos = bloque({
     titulo: `${icon('comanda', 15)} Pedidos`, id: 'hoy-pedidos',
     chips: [
       { cls: 'pend', n: pedPend.length, label: `por entregar${rp.viandasPendientes ? ` · ${plural(rp.viandasPendientes, 'plato')}` : ''}`, siempre: true },
       { cls: 'ok', n: pedHechos.filter(p => p.estado === 'entregada').length, label: 'entregados', siempre: true },
       { cls: 'bad', n: pedHechos.filter(p => p.estado === 'cancelada').length, label: 'cancelados' }
     ],
-    nPend: plural(pedPend.length, 'pedido'), pendHtml: pedPend.map(p => filaPedidoHtml(p, hoy)).join(''), vacio: 'No quedan pedidos por entregar.',
+    nPend: pedidos.length ? plural(pedPend.length, 'pedido') : '', pendHtml: pedPend.map(p => filaPedidoHtml(p, hoy)).join(''),
+    vacio: pedidos.length ? 'No quedan pedidos por entregar.' : 'Todavía no hay pedidos para hoy. Cargalos con <b>Nuevo pedido</b>.',
     hechasTitulo: 'Ya registrados hoy', nHechas: pedHechos.length ? plural(pedHechos.length, 'pedido') : 0,
     hechasHtml: pedHechos.map(p => filaPedidoHtml(p, hoy)).join(''), clave: 'pedidos'
-  }) : '';
+  });
 
-  main.innerHTML = `<div class="page">
+  const vacioViandas = `<section class="tsec bloque-dia pk" style="margin-top:0">
+      <div class="bloque-h"><h2>${icon('entregas', 15)} Viandas de packs y fijos</h2></div>
+      <div class="clist lista-dia"><div class="calm">${icon('check')} ${diaCerrado(hoy) ? 'Hoy no se trabaja: los packs y fijos no reciben.' : 'Hoy no hay viandas de packs ni fijos.'}</div></div></section>`;
+
+  // todo en una pantalla: arriba los avisos y el progreso; abajo tres columnas que se desplazan cada una por su cuenta
+  main.innerHTML = `<div class="page hoy-page">
     ${avisoSinMarcarHtml(sinMarcar)}
     ${avisoDiaCerradoHtml(hoy)}
     ${delDia.length ? `<div class="progress" style="margin-top:0">${progresoHtml(r, { sinPendientes: true })}</div>` : ''}
 
-    <div class="hoy-grid">
-      <div><div id="hoy-entregas">${bloques}</div>${bloquePedidos}
-        ${!bloques && !bloquePedidos ? `<div class="clist"><div class="stub" style="margin:40px auto"><div class="ico">${icon('comanda', 20)}</div>
-        ${diaCerrado(hoy) ? `<h2>Hoy no se trabaja</h2><p>Los packs y fijos no reciben hoy. Si igual sale un pedido particular, cargalo acá.</p>`
-          : `<h2>Nada para entregar hoy</h2><p>Los clientes con días fijos aparecen solos. Para un pedido particular, cargalo en Comandas.</p>`}
-        <button class="btn lg primary" id="nueva-comanda-vacio">${icon('plus', 14)} Nuevo pedido</button></div></div>` : ''}</div>
-
-      <aside class="hoy-aside">
+    <div class="hoy-cols">
+      <div class="hoy-col" id="hoy-entregas">${bloques || vacioViandas}</div>
+      <div class="hoy-col">${bloquePedidos}</div>
+      <aside class="hoy-col hoy-aside">
         ${seccionCartaDiaHtml(hoy)}
         ${seccionRenovarHtml()}
 
@@ -211,33 +209,12 @@ function renderHoy(bar, main){
                 + (esDueno() ? `<button class="btn" ${debePed ? `data-pago-ped="${c.id}"` : `data-pago="${c.id}"`} data-stop>${icon('pago', 13)} Pago</button>` : ''));
             }).join('')}
           </div></section>` : ''}
-
-        ${negativos.length || faltanHoy.length || bajos.length ? `<section class="tsec">
-          <h2>${icon('stock', 14)} Stock para hoy <span class="sp"></span><button class="btn quiet" data-ir="stock">Ver stock</button></h2>
-          <div class="clist ${negativos.length || faltanHoy.length ? 'alert' : ''}">
-            ${negativos.map(p => `<div class="irow click neg" data-ir="stock"><div class="t"><div class="n">${esc(p.nombre)}</div>
-              <div class="s" style="color:var(--bad-ink)">Stock en negativo: ${fmtNum(p.stock)} ${esc(p.unidad)}</div></div><span class="why bad">${fmtNum(p.stock)}</span></div>`).join('')}
-            ${faltanHoy.map(p => `<div class="irow click" data-ir="stock"><div class="t"><div class="n">${esc(p.nombre)}</div>
-              <div class="s">Hacen falta ${fmtNum(necesita[p.id])} · hay ${fmtNum(p.stock)} ${esc(p.unidad)}</div></div><span class="why bad">faltan ${fmtNum(necesita[p.id] - p.stock)}</span></div>`).join('')}
-            ${bajos.map(p => `<div class="irow click" data-ir="stock"><div class="t"><div class="n">${esc(p.nombre)}</div>
-              <div class="s">Quedan ${fmtNum(p.stock)} ${esc(p.unidad)} · mínimo ${fmtNum(p.minimo)}</div></div><span class="why warn">bajo</span></div>`).join('')}
-          </div></section>` : ''}
-
-        <section class="tsec">
-          <h2>${icon('reloj', 14)} Próximos días ${state.versionBase >= 13 && !esCadete() ? `<span class="sp"></span><button class="btn quiet" type="button" id="hoy-feriados" title="Feriados y días que no se trabaja">${icon('calendario', 13)} Feriados</button>` : ''}</h2>
-          <div class="clist"><div class="flist">${Array.from({ length: 7 }, (_, i) => {
-            const f = sumarDias(hoy, i), d = demandaDia(f);
-            const dc = diaCerrado(f);
-            return `<div class="fl click ${i === 0 ? 'today' : ''} ${dc ? 'cerrado' : ''}" data-dia="${f}" role="button" tabindex="0" title="${dc ? `Sin entregas${dc.motivo ? ': ' + esc(dc.motivo) : ''}` : 'Ver la entrega de ese día'}"><span class="d">${esc(nombreDia(f))}</span>${dc ? `<span class="tag skip" title="${esc(dc.motivo)}">Sin entregas</span>` : `<span class="muted">${plural(clientesDelDia(f).length, 'cliente')}</span>`}<b>${d}</b>${icon('chevR', 13)}</div>`;
-          }).join('')}</div></div>
-        </section>
       </aside>
     </div>
   </div>`;
 
   main.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => irA(b.dataset.ir)));
   bindAvisoDiaCerrado(main, refrescar);
-  const hf = main.querySelector('#hoy-feriados'); if(hf) hf.addEventListener('click', () => abrirDiasCerrados());
   bindCartaDia(main);
   bindRenovar(main, refrescar);
   main.querySelectorAll('[data-dia]').forEach(el => {
@@ -249,10 +226,11 @@ function renderHoy(bar, main){
   main.querySelectorAll('[data-resumen]').forEach(b => b.addEventListener('click', () => abrirResumenSemana(clientePorId(b.dataset.resumen))));
   main.querySelectorAll('[data-pago]').forEach(b => b.addEventListener('click', () => dialogoPago(clientePorId(b.dataset.pago), refrescar)));
   main.querySelectorAll('.irow[data-cli]').forEach(row => row.addEventListener('click', () => { irA('clientes'); abrirCliente(row.dataset.cli); }));
-  const nv = main.querySelector('#nueva-comanda-vacio'); if(nv) nv.addEventListener('click', () => abrirComanda(null, hoy, 'almuerzo'));
   main.querySelectorAll('details[data-plegado]').forEach(d => d.addEventListener('toggle', () => { if(d.open) hoyPlegadas.delete(d.dataset.plegado); else hoyPlegadas.add(d.dataset.plegado); }));
   bindEntregaRows(main.querySelector('#hoy-entregas'), hoy, refrescar, { deshacer: true });
   const hp = main.querySelector('#hoy-pedidos'); if(hp) bindPedidos(hp, hoy, refrescar);
+  // al volver a pintar (cada cambio), cada columna queda donde estaba
+  main.querySelectorAll('.hoy-col').forEach((col, i) => { col.scrollTop = hoyScroll[i] || 0; col.addEventListener('scroll', () => { hoyScroll[i] = col.scrollTop; }); });
 }
 
 /* ---------- cómo viene la entrega de un día (desde "Próximos días") ---------- */

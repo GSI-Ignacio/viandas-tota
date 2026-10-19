@@ -65,8 +65,8 @@ function renderMenu(){
         ${avatarHtml(nombre, 26)}<span class="who"><span class="n" style="display:block">${esc(nombre)}</span><span class="r" style="display:block">${esc(rolTxt)}</span></span>${icon('chevD', 12, 'caret')}</button>
       <div class="menu" id="menu-usuario" role="menu" ${abierto ? '' : 'hidden'}>
         <div class="mwho"><div class="n" id="user-email">${esc(email)}</div><div class="r">${esc(rolTxt)}</div></div>
+        ${state.versionBase >= 13 && !esCadete() ? `<button class="mi" id="btn-feriados" type="button" role="menuitem">${icon('calendario', 15)} Días sin entregas</button>` : ''}
         ${esDueno() ? `<button class="mi" id="btn-usuarios" type="button" role="menuitem">${icon('equipo', 15)} Usuarios del negocio</button>
-          ${state.versionBase >= 13 ? `<button class="mi" id="btn-feriados" type="button" role="menuitem">${icon('calendario', 15)} Días sin entregas</button>` : ''}
           <button class="mi" id="btn-backup" type="button" role="menuitem">${icon('backup', 15)} Copia de seguridad</button>` : ''}
         <button class="mi" id="btn-logout" type="button" role="menuitem">${icon('salir', 15)} Salir</button>
       </div>

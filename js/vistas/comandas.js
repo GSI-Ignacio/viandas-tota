@@ -57,7 +57,7 @@ function filaPedidoHtml(ped, fecha){
     <div class="t" data-abrir-pedido="${c.id}" role="button" tabindex="0" title="Ver o cambiar el pedido">
       <div class="n">${esc(c.nombre)} ${ped.lineas.some(l => l.origen === 'whatsapp') ? '<span class="tag pine">WhatsApp</span>' : ''}</div>
       <div class="que">${ped.lineas.map(l => `<b>${l.cantidad}×</b> ${esc(textoLinea(l))}`).join(' · ')}</div>
-      <div class="s">${esc(dir || 'Sin dirección')}${ped.total != null ? ` · <b style="color:var(--text)">${fmtPlata(ped.total)}</b>` : ''} ${usaFormasPago() ? formaTagHtml(formaDePedido(ped)) || '<span class="tag plain" title="Abrí el pedido para elegir cómo paga">sin forma de pago</span>' : ''}</div>
+      <div class="s">${horaPedido(ped) ? `<span class="hora" title="Hora en que se cargó">${horaPedido(ped)}</span> · ` : ''}${esc(dir || 'Sin dirección')}${ped.total != null ? ` · <b style="color:var(--text)">${fmtPlata(ped.total)}</b>` : ''} ${usaFormasPago() ? formaTagHtml(formaDePedido(ped)) || '<span class="tag plain" title="Abrí el pedido para elegir cómo paga">sin forma de pago</span>' : ''}</div>
     </div>
     ${botonesPedidoHtml(ped, fecha)}
   </div>`;
@@ -154,7 +154,8 @@ function renderComandas(bar, main){
     const cont = document.getElementById('c-lista');
     const ps = pedidosDelDia(f).filter(p => { const c = clientePorId(p.clienteId); return !q || (c.nombre + ' ' + c.empresaNombre).toLowerCase().includes(q); });
     const orden = { pendiente: 0, entregada: 1, cancelada: 2 };
-    ps.sort((a, b) => orden[a.estado] - orden[b.estado] || clientePorId(a.clienteId).nombre.localeCompare(clientePorId(b.clienteId).nombre, 'es'));
+    // cronológico: el que se cargó primero, primero (pedidosDelDia ya viene así); lo pendiente arriba
+    ps.sort((a, b) => orden[a.estado] - orden[b.estado] || String(a.creado || '').localeCompare(String(b.creado || '')));
     const pend = ps.filter(p => p.estado === 'pendiente'), hechos = ps.filter(p => p.estado !== 'pendiente');
     cont.innerHTML = ps.length ? `<h2>Pedidos <span class="n">${pend.length ? `${plural(pend.length, 'pedido')} por entregar` : 'todo registrado'}</span></h2>
         <div class="clist">${pend.map(p => filaPedidoHtml(p, f)).join('')}
