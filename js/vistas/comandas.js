@@ -193,10 +193,15 @@ const ELEGIR = '__elegir';   // línea nueva sin plato elegido todavía
 /* ¿El cliente tiene valores por defecto para sus pedidos? (menú habitual, precio propio o más de un menú por día;
    el casual solo puede tener menú habitual) */
 const tieneDefaults = (c) => !!c && (!!menuPorId(c.menuAlmuerzoId) || (c.tipo !== 'casual' && (c.precioVianda != null || c.cantAlmuerzo > 1)));
-/* La línea que se carga sola al elegir un cliente con valores por defecto. */
-function lineaPorDefecto(c){
-  const hab = menuPorId(c.menuAlmuerzoId);
-  return { menuId: hab && menuDisponible(hab) ? hab.id : ELEGIR, guarnicionId: null, cantidad: cantidadPorDefecto(c), nota: '' };
+/* La línea que se carga sola al elegir un cliente con valores por defecto. Si su menú habitual era el
+   viejo plato "Menú del día", va el plato asignado a ese día (si hay uno solo), con su guarnición. */
+function lineaPorDefecto(c, fecha){
+  let hab = menuPorId(c.menuAlmuerzoId), delDia = false;
+  if(hab && esMenuDelDia(hab)){ const ds = fecha ? menusDelDia(fecha).filter(menuDisponible) : []; hab = ds.length === 1 ? ds[0] : null; delDia = !!hab; }
+  const gs = fecha ? guarnicionesDelDia(fecha) : [];
+  const propio = c.tipo !== 'casual' && c.precioVianda != null;   // sanatorios y empresas: su precio
+  return { menuId: hab && menuDisponible(hab) ? hab.id : ELEGIR, guarnicionId: hab && hab.llevaGuarnicion && gs.length === 1 ? gs[0].id : null,
+           cantidad: cantidadPorDefecto(c), nota: '', delDia, precio: delDia && !propio ? precioMenuDia(hab) : null };
 }
 /* Cantidad que se propone en un pedido nuevo: los "menús por día" del cliente (al menos 1). */
 const cantidadPorDefecto = (c) => c && c.tipo === 'casual' ? 1 : Math.max(1, (c && c.cantAlmuerzo) || 1);
@@ -233,7 +238,7 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
   const editable = puedeEditarComandas(fecha) && !entregado;
   let lineas;
   if(ped) lineas = ped.lineas.map(x => ({ menuId: x.menuId, guarnicionId: x.guarnicionId, cantidad: x.cantidad, nota: x.nota, precio: x.precio }));
-  else lineas = tieneDefaults(c) ? [lineaPorDefecto(c)] : [];
+  else lineas = tieneDefaults(c) ? [lineaPorDefecto(c, fecha)] : [];
 
   const clientesOpc = clientesActivos().map(x => `<option value="${x.id}">${esc(x.nombre)}${x.tipo === 'empresa' && x.empresaNombre ? ' · ' + esc(x.empresaNombre) : ''}</option>`).join('');
   abrirPanel({
@@ -329,7 +334,7 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
         // si no se tocó nada todavía: se cargan sus valores por defecto, o queda vacío
         const filas = [...cont.querySelectorAll('.cline')];
         if(filas.every(f => !f.dataset.tocado)){
-          cont.innerHTML = cli && tieneDefaults(cli) ? lineaComandaHtml(lineaPorDefecto(cli), 0, fechaElegida(), cli) : '';
+          cont.innerHTML = cli && tieneDefaults(cli) ? lineaComandaHtml(lineaPorDefecto(cli, fechaElegida()), 0, fechaElegida(), cli) : '';
           bind();
         }
         actualizar();

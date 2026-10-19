@@ -27,8 +27,10 @@ function gruposStock(){
   const porNombre = (a, b) => (b.activo - a.activo) || a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base', numeric: true });
   // en el orden de las categorías ("Carnes" y "carnes" van juntas); los que no tienen, al final
   const catDe = (m) => nombreCategoria(m.categoria) || 'Sin categoría';
-  const cats = [...new Set(state.menus.map(catDe))].sort((a, b) => (a === 'Sin categoría') - (b === 'Sin categoría') || ordenPorCategoria(a, b));
-  const grupos = cats.map(cat => ({ titulo: cat, filas: state.menus.filter(m => catDe(m) === cat)
+  const cats = [...new Set(state.menus.filter(m => !esMenuDelDia(m)).map(catDe))].sort((a, b) => (a === 'Sin categoría') - (b === 'Sin categoría') || ordenPorCategoria(a, b));
+  const precioGrupo = (cat) => esCategoriaDelDia(cat) ? state.config.precioMenuDia : normalizarNombre(cat) === 'sin tacc' ? state.config.precioMenuSinTacc : null;
+  const grupos = cats.map(cat => ({ titulo: cat, nota: precioGrupo(cat) != null ? `pedido como menú del día: ${fmtPlata(precioGrupo(cat))}` : '',
+    filas: state.menus.filter(m => catDe(m) === cat && !esMenuDelDia(m))
     .sort((a, b) => (b.activo - a.activo) || ordenMenus(a, b)).map(m => ({ m, p: productoPropio(m) })) }));
   const resto = state.productos.filter(p => !deActivos.has(p.id) && (p.activo || !deTodos.has(p.id))).sort(porNombre);
   grupos.push({ titulo: 'Guarniciones', nota: 'se eligen en cada pedido', filas: resto.filter(p => p.esGuarnicion).map(p => ({ p })) });
@@ -484,6 +486,7 @@ function abrirPlato(id, { categoria = '', alGuardar = null, seguido = null } = {
       nombreInp.addEventListener('input', avisarExiste);
       const guardar = el.querySelector('#guardar-plato'), guardarOtro = el.querySelector('#guardar-plato-otro');
       formulario(el, { botones: [guardar, guardarOtro], cambios: !!m, completo: () => {
+        if(esMenuDelDia({ nombre: nombreInp.value })) return marcarFalta(nombreInp, 'El menú del día no es un plato: es una categoría. Cada día se le asignan platos con el botón «Menú del día».');
         if(existente()) return marcarFalta(nombreInp, `Ya hay un plato ${esc(existente().nombre)}: abrilo para cambiarlo.`);
         if(modoInp.value === 'otros'){
           const its = leerComps(), primero = cont.querySelector('select');
@@ -703,7 +706,7 @@ function leerCarta(texto){
     return x;
   };
   const items = [], guarniciones = [];
-  let categoria = '';
+  let categoria = '', precioCategoria = null;
   for(const linea of String(texto || '').split(/\r?\n/).map(limpiar).filter(Boolean)){
     const vineta = /^[•·▪\-*]/.test(linea);
     const t = linea.replace(/^[•·▪\-*]\s*/, '').trim();
@@ -721,22 +724,25 @@ function leerCarta(texto){
       items.push({ ...prev, nombre: prev.nombre + ' con guarnición', precio, llevaGuarnicion: true });
       continue;
     }
-    if(!vineta && precio == null){ categoria = prolijo(t.replace(/[:.]+$/, '')); continue; }
+    // "Menú del día $ 7.500" (o "Menú sin TACC $ 8.500") es una categoría con su precio, no un plato
+    const soloNombre = normalizarNombre(t.replace(/\$\s*[\d.,]+/g, '').replace(/\bvalor\b/gi, '').replace(/[\s:.]+$/, ''));
+    if(precio != null && MENUS_DEL_DIA.includes(soloNombre)){ categoria = /sin tacc/.test(soloNombre) ? 'Sin TACC' : categoriaDelDia(); precioCategoria = precio; continue; }
+    if(!vineta && precio == null){ categoria = prolijo(t.replace(/[:.]+$/, '')); precioCategoria = null; continue; }
     const activo = !/sin stock/i.test(t);
     let nombre = t.replace(/\(\s*sin stock\s*\)/gi, '').replace(/\bvalor\b/gi, '').replace(/\$\s*[\d.,]+/g, '').replace(/\s+/g, ' ').trim()
       .replace(/\s+por$/i, '');   // "2 menú del día por $ 10.000"
     // "+ guarnición" se saca del nombre; "con guarnición" queda en el nombre (hay otro sin guarnición): los dos piden elegirla
     const lleva = /\+\s*guarnici[oó]n/i.test(nombre) || /\bcon guarnici[oó]n$/i.test(nombre);
     nombre = nombre.replace(/\+\s*guarnici[oó]n/gi, '').replace(/[\s,:\-+]+$/, '').trim();
-    const cat = vineta ? categoria : (categoria || 'Del día');
+    const cat = vineta ? categoria : (categoria || categoriaDelDia());
     const variedad = nombre.match(/^(.*?)[,\s]*variedad(?:es)?\s*:\s*(.+)$/i);
     if(variedad){
       const base = prolijo(variedad[1].trim()).replace(/^Tartas individuales$/i, 'Tarta individual').replace(/^Tartas (mediana|grande|chica)s$/i, 'Tarta $1').replace(/^Tartas$/i, 'Tarta');
       variedad[2].split(',').map(v => v.trim()).filter(Boolean).forEach(v =>
-        items.push({ nombre: `${base} de ${v.toLowerCase()}`, categoria: cat, precio, llevaGuarnicion: lleva, activo, descripcion: '' }));
+        items.push({ nombre: `${base} de ${v.toLowerCase()}`, categoria: cat, precio: precio ?? precioCategoria, llevaGuarnicion: lleva, activo, descripcion: '' }));
       continue;
     }
-    items.push({ nombre: prolijo(nombre), categoria: cat, precio, llevaGuarnicion: lleva, activo, descripcion: '' });
+    items.push({ nombre: prolijo(nombre), categoria: cat, precio: precio ?? precioCategoria, llevaGuarnicion: lleva, activo, descripcion: '' });
   }
   return { items, guarniciones };
 }

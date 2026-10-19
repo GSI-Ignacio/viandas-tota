@@ -13,7 +13,7 @@ function seccionCartaDiaHtml(fecha){
       ${edita && hay ? `<button class="btn quiet" data-carta-dia="${fecha}">Cambiar</button>` : ''}</h2>
     <div class="clist">${hay ? `
       ${ms.length ? `<div class="flist">${ms.map(m => `<div class="fl"><span class="d" style="flex:1;min-width:0;text-transform:none">${esc(m.nombre)}</span>
-          <b style="font-weight:500">${esc(fmtPlata(m.precio))}</b></div>`).join('')}</div>`
+          <b style="font-weight:500">${esc(fmtPlata(precioMenuDia(m) ?? m.precio))}</b></div>`).join('')}</div>`
         : '<div class="calm" style="padding:10px 14px">Sin platos elegidos.</div>'}
       ${gs.length ? `<div class="md-guarn"><span class="muted">Guarniciones</span>
           <div class="md-chips">${gs.map(g => `<span class="md-chip">${esc(g.nombre)}</span>`).join('')}</div></div>` : ''}
@@ -41,11 +41,15 @@ async function copiarCartaDia(fecha){
   toast(ok ? 'Menú copiado: pegalo en WhatsApp.' : 'No se pudo copiar el menú.', ok ? 'ok' : 'error');
 }
 
-// Precio que se propone para un plato nuevo: el del "Menú del día" de la carta, si está.
+// Precio que se propone para un plato nuevo del día: el del menú del día, o el que más se repite en su categoría.
 function precioMenuDelDia(){
-  const m = state.menus.find(x => normalizarNombre(x.nombre).startsWith('menu del dia') && x.precio != null)
-    || state.menus.find(x => normalizarNombre(x.categoria) === 'del dia' && x.precio != null);
-  return m ? m.precio : '';
+  if(state.config.precioMenuDia != null) return state.config.precioMenuDia;
+  const cuenta = {};
+  state.menus.filter(x => x.activo && esCategoriaDelDia(x.categoria) && x.precio != null).forEach(x => { cuenta[x.precio] = (cuenta[x.precio] || 0) + 1; });
+  const mas = Object.entries(cuenta).sort((a, b) => b[1] - a[1])[0];
+  if(mas) return Number(mas[0]);
+  const viejo = state.menus.find(x => esMenuDelDia(x) && x.precio != null);   // el viejo plato "Menú del día"
+  return viejo ? viejo.precio : '';
 }
 
 /* Ventana para elegir el menú de un día. */
@@ -56,7 +60,7 @@ async function abrirCartaDia(fecha){
   const edita = puedeElegirCartaDia(fecha);
   const elegidos = new Set(state.cartaDia.filter(x => x.fecha === fecha).map(x => x.menuId ? 'm' + x.menuId : 'g' + x.guarnicionId));
   const platos = state.menus.filter(m => menuDisponible(m) || elegidos.has('m' + m.id));
-  const cats = [...new Set(platos.map(m => m.categoria || 'Sin categoría'))];
+  const cats = [...new Set(platos.map(m => m.categoria || 'Sin categoría'))].sort(ordenPorCategoria);   // primero el menú del día
   const gs = state.productos.filter(p => p.esGuarnicion && (p.activo || elegidos.has('g' + p.id)));
   const anterior = [...new Set(state.cartaDia.map(x => x.fecha))].filter(f => f < fecha).sort().pop();
   const fila = (clave, nombre, extra = '') => `<label class="md-op ${elegidos.has(clave) ? 'on' : ''}">
@@ -75,6 +79,10 @@ async function abrirCartaDia(fecha){
         ${edita && anterior ? `<button class="btn quiet" type="button" id="md-repetir">${icon('copiar', 13)} Repetir lo del ${esc(nombreDia(anterior).toLowerCase())}</button>` : ''}
       </div>
       ${edita ? '' : `<div class="banner" style="margin-bottom:14px">${icon('info', 14)} Este día ya pasó: solo lo podés ver.</div>`}
+      ${usaPrecioMenuDia() ? `<div class="md-precios">
+        <div class="field"><label for="md-precio-menu">Precio del menú del día</label><input type="number" class="inp sm" id="md-precio-menu" min="0" step="100" value="${state.config.precioMenuDia ?? ''}" placeholder="$" ${esDueno() ? '' : 'disabled'}></div>
+        <div class="field"><label for="md-precio-st">Menú sin TACC</label><input type="number" class="inp sm" id="md-precio-st" min="0" step="100" value="${state.config.precioMenuSinTacc ?? ''}" placeholder="$" ${esDueno() ? '' : 'disabled'}></div>
+        <p class="muted md-ayuda">Es el precio de los platos que se piden como menú del día (el plato del día y su guarnición), aunque en la carta tengan otro.</p></div>` : ''}
       <div class="md-grid">
         <div class="psec" style="margin-top:0"><h3>Platos del día <span class="sp"></span><span class="n" id="md-n-m"></span></h3>
           <p class="muted md-ayuda">Tildá los platos que salen este día. Al cargar un pedido aparecen primero.</p>
@@ -129,6 +137,15 @@ async function abrirCartaDia(fecha){
       };
       contar();
       el.querySelectorAll('[data-md]').forEach(x => x.addEventListener('change', () => { contar(); guardar(); }));
+      // el precio del menú: se guarda al cambiarlo
+      [['#md-precio-menu', 'precioMenuDia'], ['#md-precio-st', 'precioMenuSinTacc']].forEach(([sel, campo]) => {
+        const inp = el.querySelector(sel);
+        if(inp) inp.addEventListener('change', async () => {
+          const v = inp.value === '' ? null : Math.max(0, Number(inp.value) || 0);
+          try{ await guardarConfig({ [campo]: v }); estado.textContent = 'Guardado'; refrescar(); }
+          catch(err){ toastError('No se pudo guardar el precio', err); }
+        });
+      });
       el.querySelectorAll('[data-md-ir]').forEach(b => b.addEventListener('click', async () => {
         await cola; abrirCartaDia(sumarDias(fecha, Number(b.dataset.mdIr)));
       }));
@@ -175,7 +192,7 @@ async function abrirCartaDia(fecha){
           if(!nombre){ inp.focus(); return null; }
           const ya = state.menus.find(m => normalizarNombre(m.nombre) === normalizarNombre(nombre));
           if(ya) return ya.activo ? ya : guardarMenu(ya.id, { ...ya, activo: true });
-          return guardarMenu(null, { nombre, descripcion: '', activo: true, precio: precio.value, categoria: 'Del día', llevaGuarnicion: false, items: [] });
+          return guardarMenu(null, { nombre, descripcion: '', activo: true, precio: precio.value, categoria: categoriaDelDia(), llevaGuarnicion: false, items: [] });
         }, 'm');
         ap.addEventListener('click', ir);
         inp.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); ir(); } });

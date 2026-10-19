@@ -29,7 +29,7 @@ const state = {
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 17;
+const VERSION_BASE_APP = 18;
 
 /* ---------- formas de pago (desde la v14) ----------
    Un pedido se paga en efectivo, por transferencia o con Mercado Pago, o va "a cuenta" (paga después:
@@ -191,7 +191,9 @@ async function cargarDatos(){
     cocinaLat: cfg.cocina_lat == null ? null : Number(cfg.cocina_lat), cocinaLng: cfg.cocina_lng == null ? null : Number(cfg.cocina_lng),
     alertaViandas: cfg.alerta_viandas ?? 3,
     carta: cfg.carta || null,
-    categorias: Array.isArray(cfg.categorias) ? cfg.categorias : null
+    categorias: Array.isArray(cfg.categorias) ? cfg.categorias : null,
+    precioMenuDia: cfg.precio_menu_dia == null ? null : Number(cfg.precio_menu_dia),
+    precioMenuSinTacc: cfg.precio_menu_sin_tacc == null ? null : Number(cfg.precio_menu_sin_tacc)
   };
   state.clientes = clientes.map(mapCliente);
   state.cadetes = (cadetes.data || []).map(mapCadete);
@@ -299,8 +301,16 @@ const lineasComanda = (clienteId, fecha, turno) => state.comandas[claveT(cliente
 const menuPorId = (id) => state.menus.find(m => m.id === id);
 // los menús van siempre en orden alfabético, sin importar el precio; adelante solo los menús del día:
 // el "Menú del día" y el "Menú sin TACC" (el menú del día de los sin TACC)
-const MENUS_DEL_DIA = ['menu del dia', 'menu sin tacc'];
+const MENUS_DEL_DIA = ['menu del dia', 'menu sin tacc', 'menu del dia sin tacc'];
 const esMenuDelDia = (m) => MENUS_DEL_DIA.includes(normalizarNombre(m.nombre));
+/* El menú del día es una categoría, no un plato: cada día se le asignan platos (Menú del día → el día)
+   y el pedido lleva ese plato, que descuenta su stock y el de su guarnición. Los platos que se llamaban
+   "Menú del día" o "Menú sin TACC" quedaron desactivados (v18). Antes la categoría se llamaba "Del día". */
+const esCategoriaDelDia = (c) => ['menu del dia', 'del dia'].includes(normalizarNombre(c));
+const esSinTacc = (m) => !!m && (normalizarNombre(m.categoria) === 'sin tacc' || /\bsin\s*tacc\b/i.test(m.nombre));
+// el menú del día tiene su precio (el del menú sin TACC, para los platos sin TACC); desde la v18
+const usaPrecioMenuDia = () => state.versionBase >= 18;
+const precioMenuDia = (m) => { const p = esSinTacc(m) ? state.config.precioMenuSinTacc : state.config.precioMenuDia; return p == null ? null : p; };
 const ordenMenus = (a, b) => {
   const da = MENUS_DEL_DIA.indexOf(normalizarNombre(a.nombre)), db = MENUS_DEL_DIA.indexOf(normalizarNombre(b.nombre));
   if(da !== db) return (da < 0 ? 99 : da) - (db < 0 ? 99 : db);
@@ -433,7 +443,9 @@ const usaCategorias = () => state.versionBase >= 17;
 const mismaCategoria = (a, b) => normalizarNombre(a) === normalizarNombre(b);
 // sin una lista guardada: primero las del día y al final las promociones; el resto, en orden alfabético
 const ordenCategorias = (a, b) => ((normalizarNombre(a) === 'promociones') - (normalizarNombre(b) === 'promociones'))
-  || ((normalizarNombre(b) === 'del dia') - (normalizarNombre(a) === 'del dia')) || a.localeCompare(b, 'es');
+  || (esCategoriaDelDia(b) - esCategoriaDelDia(a)) || a.localeCompare(b, 'es');
+// la categoría del menú del día, como está en la lista
+const categoriaDelDia = () => categorias().find(esCategoriaDelDia) || 'Menú del día';
 function categorias(){
   const guardadas = Array.isArray(state.config.categorias) ? state.config.categorias.map(c => String(c || '').trim()).filter(Boolean) : null;
   const deMenus = [...new Set(state.menus.filter(m => m.activo && m.categoria).map(m => m.categoria.trim()))].sort(ordenCategorias);
@@ -505,8 +517,9 @@ function textoDisponible(m){
   if(n === 0) return 'sin stock';
   return stockDePlato(m) === 'otros' ? `alcanzan ${n}` : `quedan ${n}`;   // una promo: lo que alcanza con lo que usa
 }
-// disponible para pedir: activo. Sin stock también: se marca "sin stock" y, si lo piden, el stock queda en negativo (en rojo)
-const menuDisponible = (m) => !!m && m.activo;
+// disponible para pedir: activo (y que no sea el viejo plato "Menú del día"). Sin stock también: se marca "sin stock"
+// y, si lo piden, el stock queda en negativo (en rojo)
+const menuDisponible = (m) => !!m && m.activo && !esMenuDelDia(m);
 const menusDisponibles = () => state.menus.filter(menuDisponible);
 
 /* Precio de un plato para un cliente: su precio propio (sanatorio, empresas) o el de la carta. */
@@ -807,7 +820,7 @@ function textoCartaDia(fecha){
   const esHoy = fecha === todayStr();
   const dia = parseFecha(fecha).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' }).replace(',', '');
   return [...(esHoy ? ['¡Buen día! 🤗'] : []), esHoy ? 'Menú del día 🥘' : `Menú del ${dia} 🥘`, '',
-    ...ms.map(m => `• ${m.nombre}${m.precio != null ? ' ' + fmtPlata(m.precio) : ''}`),
+    ...ms.map(m => { const p = precioMenuDia(m) ?? m.precio; return `• ${m.nombre}${p != null ? ' ' + fmtPlata(p) : ''}`; }),
     ...(gs.length ? ['', `Guarniciones: ${lista(gs.map(g => g.nombre.toLowerCase()))}`] : [])].join('\n');
 }
 function produccionDe(fecha){ const p = state.produccion.find(x => x.fecha === fecha); return p ? p.preparadas : null; }
@@ -1069,6 +1082,8 @@ async function guardarConfig(patch){
   if('alertaViandas' in patch) fila.alerta_viandas = patch.alertaViandas;
   if('carta' in patch) fila.carta = patch.carta;
   if('categorias' in patch) fila.categorias = patch.categorias;
+  if('precioMenuDia' in patch) fila.precio_menu_dia = patch.precioMenuDia;
+  if('precioMenuSinTacc' in patch) fila.precio_menu_sin_tacc = patch.precioMenuSinTacc;
   const { error } = await sb.from('negocio_config').upsert(fila, { onConflict: 'user_id' });
   if(error) throw error;
   Object.assign(state.config, patch);

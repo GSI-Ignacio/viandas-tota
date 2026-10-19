@@ -13,15 +13,15 @@ let cartaGuardarT = null;
 // categorías que se ofrecen para sumar a la carta (si todavía no existen)
 const CATEGORIAS_SUGERIDAS = ['Entradas', 'Carnes', 'Pollo', 'Pastas', 'Tartas', 'Ensaladas', 'Bebidas', 'Postres', 'Promociones'];
 const nuevoIdSeccion = () => 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-// el título de una sección nueva: el de su categoría ("Del día" → "Menú del día")
-const tituloDeCategoria = (cat) => mismaCategoria(cat, 'Del día') ? 'Menú del día' : cat;
+// el título de una sección nueva: el de su categoría (la vieja "Del día" → "Menú del día")
+const tituloDeCategoria = (cat) => esCategoriaDelDia(cat) ? 'Menú del día' : cat;
 
 /* Cada sección de platos es de una categoría y muestra solo sus platos. Las cartas armadas antes de
    las categorías no la tienen guardada: sale del título ("Menú del día" → Del día). */
 function categoriaDeSeccion(s){
   if(!s || s.tipo === 'guarniciones') return null;
   if(s.categoria) return nombreCategoria(s.categoria);
-  return categorias().find(c => mismaCategoria(c, normalizarNombre(s.titulo) === 'menu del dia' ? 'Del día' : s.titulo)) || null;
+  return categorias().find(c => esCategoriaDelDia(s.titulo) ? esCategoriaDelDia(c) : mismaCategoria(c, s.titulo)) || null;
 }
 // los platos activos de una categoría (se cargan solos al agregar su sección)
 const platosParaCategoria = (cat) => state.menus.filter(m => m.activo && m.categoria && mismaCategoria(m.categoria, cat)).sort(ordenMenus);
@@ -101,8 +101,11 @@ function seccionHtml(s, { edita, imagen }){
     const activos = ps.filter(x => x.m.activo && !esMenuDelDia(x.m));
     // todos al mismo precio (como el menú del día): el precio va una sola vez, al lado del título
     const precios = new Set(ps.filter(x => x.m.activo).map(x => x.m.precio));
-    const unico = activos.length > 1 && precios.size === 1 && [...precios][0] != null;
-    if(unico) precioSec = fmtPlata([...precios][0]);
+    // el menú del día (y el sin TACC) tiene su precio: va una sola vez, al lado del título
+    const cat = categoriaDeSeccion(s);
+    const fijo = esCategoriaDelDia(cat) ? state.config.precioMenuDia : normalizarNombre(cat) === 'sin tacc' ? state.config.precioMenuSinTacc : null;
+    const unico = fijo != null || (activos.length > 1 && precios.size === 1 && [...precios][0] != null);
+    if(unico) precioSec = fmtPlata(fijo != null ? fijo : [...precios][0]);
     const extra = (m) => `${m.llevaGuarnicion ? '<span class="c-gn"> + guarnición</span>' : ''}${m.descripcion ? `<small>${esc(m.descripcion)}</small>` : ''}`;
     const off = (m) => m.activo ? '' : '<span class="c-off">desactivado: no sale en la imagen</span>';
     if(unico){

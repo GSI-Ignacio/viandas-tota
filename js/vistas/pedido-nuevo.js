@@ -48,8 +48,8 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
         st.cli = c;
         if(cambia){
           // lo de siempre (menú habitual, cantidad y precio de la ficha), si tiene
-          const d = tieneDefaults(c) ? lineaPorDefecto(c) : null;
-          st.lineas = d && d.menuId && d.menuId !== ELEGIR ? [linea(d)] : [];
+          const d = tieneDefaults(c) ? lineaPorDefecto(c, st.fecha) : null;
+          st.lineas = d && d.menuId && d.menuId !== ELEGIR ? [Object.assign(linea(d), { delDia: !!d.delDia })] : [];
           st.porDefecto = st.lineas.length > 0;
           // sanatorios y empresas van a cuenta, como siempre
           st.forma = modoPago(c) === 'cuenta' ? 'cuenta' : null;
@@ -63,11 +63,20 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
         }
         ir('que');
       };
-      const agregarPlato = (id) => {
+      // el menú del día: los platos asignados a ese día; si todavía no se asignaron, los de su categoría
+      const delDiaAsignados = () => menusDelDia(st.fecha).filter(menuDisponible);
+      const opcionesDia = () => { const d = delDiaAsignados(); return d.length ? d : menusDisponibles().filter(m => esCategoriaDelDia(m.categoria)).sort(ordenMenus); };
+      const idsDia = () => new Set(delDiaAsignados().map(m => m.id));   // los asignados van primero y con otro color
+      // delDia = elegido como menú del día: va con el precio del menú (salvo que el cliente tenga el suyo)
+      const agregarPlato = (id, delDia = false) => {
         const m = menuPorId(id); if(!m) return;
-        const ya = st.lineas.find(l => l.menuId === id);
+        const ya = st.lineas.find(l => l.menuId === id && !!l.delDia === delDia);
+        // si ese día hay una sola guarnición, va esa (el menú del día: milanesa con ensalada)
+        const gs = guarnicionesDelDia(st.fecha);
+        const propio = st.cli && st.cli.tipo !== 'casual' && st.cli.precioVianda != null;
         if(ya) ya.cantidad++;
-        else st.lineas.push(linea({ menuId: id, cantidad: st.lineas.length ? 1 : cantidadPorDefecto(st.cli) }));
+        else st.lineas.push(Object.assign(linea({ menuId: id, guarnicionId: m.llevaGuarnicion && gs.length === 1 ? gs[0].id : null,
+          cantidad: st.lineas.length ? 1 : cantidadPorDefecto(st.cli), precio: delDia && !propio ? precioMenuDia(m) : null }), { delDia }));
         st.porDefecto = false;
         pintarPedido();
       };
@@ -136,21 +145,23 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
       };
 
       const platoHtml = (m) => {
-        const n = st.lineas.filter(l => l.menuId === m.id).reduce((s, l) => s + l.cantidad, 0), p = precioPara(st.cli, m.id), disp = textoDisponible(m);
-        return `<button class="pn-plato ${n ? 'en' : ''} ${esMenuDelDia(m) ? 'del-dia' : ''}" type="button" data-plato="${m.id}" title="Agregar ${esc(m.nombre)}">
+        const enDia = st.cat === '__dia' && !st.buscaPlato, propio = st.cli && st.cli.tipo !== 'casual' && st.cli.precioVianda != null;
+        const n = st.lineas.filter(l => l.menuId === m.id).reduce((s, l) => s + l.cantidad, 0), disp = textoDisponible(m);
+        const p = enDia && !propio && precioMenuDia(m) != null ? precioMenuDia(m) : precioPara(st.cli, m.id);
+        return `<button class="pn-plato ${n ? 'en' : ''} ${idsDia().has(m.id) ? 'del-dia' : ''}" type="button" data-plato="${m.id}" title="Agregar ${esc(m.nombre)}">
           <b>${esc(m.nombre)}</b><span>${p != null ? fmtPlata(p) : 'sin precio'}${disp ? ` · <em class="${disp === 'sin stock' ? 'sin-stock' : ''}">${esc(disp)}</em>` : ''}</span>${n ? `<i class="pn-n">${n}</i>` : ''}</button>`;
       };
       // sin TACC: su categoría, o "sin TACC" en el nombre (como el "Menú sin TACC" del día)
-      const sinTacc = (m) => normalizarNombre(m.categoria) === 'sin tacc' || /\bsin\s*tacc\b/i.test(m.nombre);
+      const sinTacc = esSinTacc;
       const platosHtml = () => {
-        const q = normalizarNombre(st.buscaPlato), delDia = menusDelDia(st.fecha).filter(menuDisponible);
+        const q = normalizarNombre(st.buscaPlato), dia = idsDia();
         let ms = menusDisponibles();
         if(q) ms = ms.filter(m => normalizarNombre(m.nombre + ' ' + (m.categoria || '')).includes(q));
-        else if(st.cat === '__dia') ms = delDia;
+        else if(st.cat === '__dia') ms = opcionesDia();
         else if(normalizarNombre(st.cat) === 'sin tacc') ms = ms.filter(sinTacc);
         else if(st.cat) ms = ms.filter(m => (m.categoria || 'Otros') === st.cat && !sinTacc(m));
-        // siempre en orden alfabético, sin importar el precio
-        ms = ms.slice().sort(ordenMenus);
+        // los del menú de ese día primero; después, en orden alfabético, sin importar el precio
+        ms = ms.slice().sort((a, b) => (dia.has(b.id) - dia.has(a.id)) || ordenMenus(a, b));
         if(!ms.length) return `<div class="calm">${icon('buscar')} ${q ? `No hay platos con «${esc(st.buscaPlato)}».` : 'No hay platos disponibles en esta categoría.'}</div>`;
         // lo que tiene TACC y lo que no, separados
         const con = ms.filter(m => !sinTacc(m)), sin = ms.filter(sinTacc);
@@ -168,7 +179,7 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
               ${opcionesG().map(x => `<button type="button" class="chip ${l.guarnicionId === x.id ? 'on' : ''}" data-guarn="${x.id}">${esc(x.nombre)}</button>`).join('')}
               ${l.guarnicionId ? `<button type="button" class="pn-link" data-otra-g title="El mismo plato, con otra guarnición">+ otra guarnición para algunos</button>` : ''}</div>`;
         return `<div class="pn-linea" data-l="${l.id}">
-          <div class="pn-l1"><b>${esc(m ? m.nombre : 'Vianda sin menú')}</b>
+          <div class="pn-l1"><b>${esc(m ? m.nombre : 'Vianda sin menú')}${l.delDia ? ' <span class="tag plain">menú del día</span>' : ''}</b>
             <button type="button" class="pn-sub pn-precio-txt" data-sub data-editar-precio title="Cambiar el precio de este plato">${fmtPlata(l.cantidad * (p || 0)) || '$ 0'}</button>
             <button class="btn pn-quitar" type="button" data-quitar aria-label="Quitar ${esc(m ? m.nombre : 'el plato')}" title="Quitar este plato">${icon('borrar', 13)}<span>Quitar</span></button></div>
           <div class="pn-l2">
@@ -190,9 +201,10 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
           : `<div class="pn-vacio">${icon('comanda', 18)}<span>Todavía no elegiste platos.<br>Tocá los de la izquierda y van apareciendo acá.</span></div>`}</div>
         <div class="pn-der-total"><span>Total</span><b id="pn-total">${fmtPlata(total()) || '$ 0'}</b></div>`;
       const pasoQue = () => {
-        const nom = st.cli.nombre.split(' ')[0], ant = previo(), delDia = menusDelDia(st.fecha).filter(menuDisponible);
-        const cats = [...new Set(menusDisponibles().map(m => m.categoria || 'Otros'))].sort(ordenPorCategoria);   // en el orden de las categorías
-        if(st.cat === null) st.cat = delDia.length ? '__dia' : '';
+        const nom = st.cli.nombre.split(' ')[0], ant = previo(), delDia = opcionesDia();
+        // en el orden de las categorías; la del menú del día va aparte, con los platos del día
+        const cats = [...new Set(menusDisponibles().map(m => m.categoria || 'Otros'))].filter(c => !esCategoriaDelDia(c)).sort(ordenPorCategoria);
+        if(st.cat === null) st.cat = delDiaAsignados().length ? '__dia' : '';
         const u = st.ultimo, mismo = u && textoLineas(u.lineas) === textoLineas(st.lineas);
         return `<h2 class="pn-q">¿Qué pide ${esc(nom)}?</h2>
         <div class="pn-que">
@@ -201,7 +213,7 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
             ${u && !mismo ? `<div class="pn-repetir"><span>${icon('deshacer', 14)} Último pedido, ${esc(u.fecha === hoy ? 'hoy' : formatFechaMedia(u.fecha))}: <b>${esc(textoLineas(u.lineas))}</b></span>
               <button class="btn" type="button" id="pn-repetir">Repetir</button></div>` : ''}
             <div class="pn-cats">
-              ${delDia.length ? `<button type="button" class="chip ${st.cat === '__dia' && !st.buscaPlato ? 'on' : ''}" data-cat="__dia">${icon('menu', 12)} ${esc(etiquetaMenuDia(st.fecha))}</button>` : ''}
+              ${delDia.length ? `<button type="button" class="chip ${st.cat === '__dia' && !st.buscaPlato ? 'on' : ''}" data-cat="__dia" title="${delDiaAsignados().length ? 'Los platos que asignaste a ese día' : 'Todavía no asignaste los platos de ese día: estos son los de la categoría Menú del día'}">${icon('menu', 12)} Menú del día</button>` : ''}
               <button type="button" class="chip ${st.cat === '' && !st.buscaPlato ? 'on' : ''}" data-cat="">Todos</button>
               ${cats.map(c => `<button type="button" class="chip ${st.cat === c && !st.buscaPlato ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
             </div>
@@ -275,7 +287,7 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
       const pintarGrid = () => {
         const grid = raiz.querySelector('#pn-grid'); if(!grid) return;
         grid.innerHTML = platosHtml();
-        grid.querySelectorAll('[data-plato]').forEach(b => b.addEventListener('click', () => agregarPlato(b.dataset.plato)));
+        grid.querySelectorAll('[data-plato]').forEach(b => b.addEventListener('click', () => agregarPlato(b.dataset.plato, st.cat === '__dia' && !st.buscaPlato)));
         raiz.querySelectorAll('[data-cat]').forEach(c => c.classList.toggle('on', !st.buscaPlato && c.dataset.cat === st.cat));
       };
       const bindPedido = () => {

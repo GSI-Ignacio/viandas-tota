@@ -7,7 +7,7 @@
 -- vuelve a hacer y no se tocan los datos.
 --
 -- Cada actualización nueva se agrega al final de este archivo.
--- Adentro van, en orden, las versiones 5 a 17. Las anteriores (v2 a v4) ya están corridas;
+-- Adentro van, en orden, las versiones 5 a 18. Las anteriores (v2 a v4) ya están corridas;
 -- quedan en la carpeta migraciones/ como historial, junto con cada versión por separado.
 -- ============================================================
 
@@ -993,6 +993,80 @@ begin;
 alter table negocio_config add column if not exists categorias jsonb;
 
 create or replace function version_base() returns integer language sql immutable as $$ select 17 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v18 — el menú del día es una categoría, no un plato
+--   "Menú del día" y "Menú sin TACC" dejan de ser platos con stock propio:
+--   se desactivan (y su stock, si no lo usa otro plato), y salen de la carta
+--   y del menú de cada día. La categoría "Del día" pasa a llamarse "Menú del
+--   día". Un pedido del menú del día lleva el plato que se le asignó a ese
+--   día, y descuenta el stock de ese plato y de su guarnición.
+--   Se hace una sola vez.
+-- ============================================================
+
+begin;
+
+-- el precio del menú del día y el del menú sin TACC: ya no son el precio de un plato
+alter table negocio_config add column if not exists precio_menu_dia numeric(12,2);
+alter table negocio_config add column if not exists precio_menu_sin_tacc numeric(12,2);
+update negocio_config nc set precio_menu_dia = (select m.precio from menus m where m.user_id = nc.user_id and m.precio is not null
+    and regexp_replace(lower(translate(trim(m.nombre), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '\s+', ' ', 'g') = 'menu del dia'
+    order by m.activo desc, m.created_at limit 1)
+  where nc.precio_menu_dia is null;
+update negocio_config nc set precio_menu_sin_tacc = (select m.precio from menus m where m.user_id = nc.user_id and m.precio is not null
+    and regexp_replace(lower(translate(trim(m.nombre), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '\s+', ' ', 'g') in ('menu sin tacc', 'menu del dia sin tacc')
+    order by m.activo desc, m.created_at limit 1)
+  where nc.precio_menu_sin_tacc is null;
+
+do $$
+begin
+  if exists (select 1 from app_migraciones where nombre = 'v18-menu-del-dia') then return; end if;
+
+  create temp table v18_menus on commit drop as
+    select id from menus
+    where regexp_replace(lower(translate(trim(nombre), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '\s+', ' ', 'g') in ('menu del dia', 'menu sin tacc', 'menu del dia sin tacc');
+
+  -- su stock deja de contarse, salvo que lo use otro plato activo
+  update productos p set activo = false
+  where p.id in (select mp.producto_id from menu_productos mp where mp.menu_id in (select id from v18_menus))
+    and not exists (select 1 from menu_productos o join menus m on m.id = o.menu_id
+                    where o.producto_id = p.id and m.activo and o.menu_id not in (select id from v18_menus));
+  update menus set activo = false where id in (select id from v18_menus);
+  delete from carta_dia where menu_id in (select id from v18_menus);
+
+  -- la categoría "Del día" pasa a ser "Menú del día"
+  update menus set categoria = 'Menú del día'
+  where regexp_replace(lower(translate(trim(categoria), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '\s+', ' ', 'g') = 'del dia';
+  update negocio_config nc set categorias = (
+    select coalesce(jsonb_agg(to_jsonb(b.c) order by b.primero), '[]'::jsonb) from (
+      select a.c, min(a.ord) as primero from (
+        select case when regexp_replace(lower(translate(trim(e.x), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '\s+', ' ', 'g') in ('del dia', 'menu del dia')
+                    then 'Menú del día' else e.x end as c, e.ord
+        from jsonb_array_elements_text(nc.categorias) with ordinality e(x, ord)) a
+      group by a.c) b)
+  where jsonb_typeof(nc.categorias) = 'array';
+
+  -- la carta: sin esos platos, y la sección del día con la categoría nueva
+  update negocio_config nc set carta = jsonb_set(nc.carta, '{secciones}', coalesce((
+      select jsonb_agg(jsonb_set(
+          case when regexp_replace(lower(translate(trim(coalesce(t.s->>'categoria', '')), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '\s+', ' ', 'g') = 'del dia'
+               then jsonb_set(t.s, '{categoria}', to_jsonb('Menú del día'::text)) else t.s end,
+          '{items}', coalesce((select jsonb_agg(i.it order by i.k) from jsonb_array_elements(t.s->'items') with ordinality i(it, k)
+                               where i.it->>'menuId' is null or i.it->>'menuId' not in (select id::text from v18_menus)), '[]'::jsonb))
+        order by t.ord)
+      from jsonb_array_elements(nc.carta->'secciones') with ordinality t(s, ord)), '[]'::jsonb))
+  where nc.carta is not null and jsonb_typeof(nc.carta->'secciones') = 'array';
+
+  insert into app_migraciones (nombre) values ('v18-menu-del-dia');
+end $$;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 18 $$;
 grant execute on function version_base() to authenticated;
 
 notify pgrst, 'reload schema';
