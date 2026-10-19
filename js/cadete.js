@@ -82,12 +82,20 @@ function cadPintar(){
   const { todas, cola } = cadParadas(), c = cola[0];
   const hechas = todas.filter(x => !paradaPendiente(x, cad.fecha)).length;
   const pct = todas.length ? Math.round(hechas * 100 / todas.length) : 0;
+  // el mapa de la tarjeta anterior se saca antes de borrarla (si no, el mapa falla al moverse)
+  if(cadMapa){ try{ cadMapa.remove(); }catch(_){} cadMapa = null; cadCapa = null; }
   cadRaiz.innerHTML = `
     <header class="cad-top">
       <div class="cad-hola"><b>${esc(state.config.nombre)}</b><span>Hola, ${esc(k.nombre.split(' ')[0])} · ${esc(nombreDia(cad.fecha))}</span></div>
-      <button type="button" class="cad-gps ${cadPos ? 'on' : ''}" id="cad-gps" title="${cadPos ? 'Tu ubicación se está compartiendo' : 'Tocá para compartir tu ubicación'}">
-        <i></i>${cadPos ? 'Ubicación activa' : 'Activar ubicación'}</button>
+      <button type="button" class="cad-gps ${cadPos ? 'on' : cadBloqueada ? 'bloq' : ''}" id="cad-gps" title="${cadPos ? 'Tu ubicación se está compartiendo' : 'Tocá para compartir tu ubicación'}">
+        <i></i>${cadPos ? 'Ubicación activa' : cadBloqueada ? 'Ubicación bloqueada' : cadMirando != null ? 'Buscando ubicación…' : 'Activar ubicación'}</button>
     </header>
+    ${cadBloqueada && !cadPos ? `<div class="cad-aviso-gps">${icon('alerta', 16)}<div><b>La ubicación está bloqueada para esta página.</b>
+        Así la cocina no ve por dónde vas ni le puede avisar al cliente cuántas cuadras faltan. Para activarla:
+        <ul><li><b>Android (Chrome):</b> tocá el candado o los tres puntos al lado de la dirección → Permisos → Ubicación → Permitir.</li>
+          <li><b>iPhone:</b> Ajustes → Safari (o Chrome) → Ubicación → Permitir o Preguntar.</li>
+          <li>Si se abrió dentro de WhatsApp, abrila en el navegador (⋮ → Abrir en Chrome / Safari).</li></ul>
+        <button type="button" class="btn" id="cad-gps-otra">${icon('deshacer', 13)} Ya la activé</button></div></div>` : ''}
     ${todas.length ? `<div class="cad-prog"><div class="cad-barra"><i style="width:${pct}%"></i></div><span>${hechas} de ${plural(todas.length, 'entrega')}</span></div>` : ''}
     ${c ? cadTarjeta(c, cola.length) : cadFin(todas)}`;
   cadBind(c);
@@ -146,10 +154,11 @@ function cadDibujarMapa(c){
       const paso = 0.002, desde = { lat: Math.round(cadPos.lat / paso) * paso, lng: Math.round(cadPos.lng / paso) * paso };
       rutaPorCalles([desde, c], cadK().medio).then(r => { if(r && cadMapa && cadMapa.hasLayer(capa)) window.L.polyline(r.linea, { color: cadK().color, weight: 4, opacity: .8 }).addTo(capa); }, () => {});
     }
-    const encuadrar = () => { if(pts.length > 1) cadMapa.fitBounds(pts, { padding: [26, 26], maxZoom: 16 }); else cadMapa.setView(pts[0], 15); };
+    const m = cadMapa;
+    const encuadrar = () => { if(pts.length > 1) m.fitBounds(pts, { padding: [26, 26], maxZoom: 16, animate: false }); else m.setView(pts[0], 15, { animate: false }); };
     encuadrar();
     // la tarjeta entra con una animación: al terminar, el mapa se acomoda a su tamaño final
-    setTimeout(() => { if(el.isConnected){ cadMapa.invalidateSize(); encuadrar(); } }, 450);
+    setTimeout(() => { if(el.isConnected && cadMapa === m){ m.invalidateSize(false); encuadrar(); } }, 450);
   }).catch(() => { el.remove(); });
 }
 
@@ -197,29 +206,37 @@ async function cadNoEstaba(c){
 function cadBind(c){
   const gps = document.getElementById('cad-gps');
   if(gps) gps.addEventListener('click', () => cadUbicacion(true));
+  const otra = document.getElementById('cad-gps-otra');
+  if(otra) otra.addEventListener('click', () => { cadBloqueada = false; cadUbicacion(true); cadPintar(); });
   const re = document.getElementById('cad-reintentar');
   if(re) re.addEventListener('click', () => { cadSinEntregar = new Set(); cadGuardar('sin', cadSinEntregar); cadPintar(); });
   if(!c) return;
-  document.getElementById('cad-entregado').addEventListener('click', () => cadMarcar(c, 'entregado'));
+  // si la ubicación no está prendida, cada toque la vuelve a pedir (el celular pregunta, si hace falta)
+  const pedir = () => { if(!cadPos && cadMirando == null && !cadBloqueada) cadUbicacion(true); };
+  document.getElementById('cad-entregado').addEventListener('click', () => { pedir(); cadMarcar(c, 'entregado'); });
   document.getElementById('cad-noestaba').addEventListener('click', () => cadNoEstaba(c));
   // el aviso lleva la distancia de ese momento
   const av = document.getElementById('cad-avisar');
-  if(av) av.addEventListener('click', () => { av.href = waLink(c.telefono, cadMensaje(c)); });
+  if(av) av.addEventListener('click', () => { pedir(); av.href = waLink(c.telefono, cadMensaje(c)); });
 }
 
-/* ---------- la ubicación ---------- */
-let cadMirando = null;
+/* ---------- la ubicación ----------
+   Arranca sola al abrir el link: la primera vez el celular pregunta si la deja usar y después se acuerda.
+   Si la bloqueó, se explica cómo activarla. */
+let cadMirando = null, cadBloqueada = false;
 function cadUbicacion(pedida){
   if(!navigator.geolocation){ if(pedida) toast('Este celular no comparte la ubicación desde el navegador.', 'err'); return; }
   if(cadMirando != null) return;
   cadMirando = navigator.geolocation.watchPosition((p) => {
     const primera = !cadPos;
+    cadBloqueada = false;
     cadPos = { lat: p.coords.latitude, lng: p.coords.longitude, precision: p.coords.accuracy, at: Date.now() };
     cadEnviar();
     if(primera) cadPintar(); else cadActualizarDistancia();
   }, (err) => {
-    cadMirando = null;
-    if(pedida || err.code === 1) toast(err.code === 1 ? 'Para ver la distancia y que en la cocina sepan por dónde vas, permití la ubicación en el navegador.' : 'No se pudo obtener la ubicación.', 'err', 9000);
+    // bloqueada: se deja de pedir y se explica cómo activarla; si solo tardó, se sigue intentando
+    if(err.code === 1){ navigator.geolocation.clearWatch(cadMirando); cadMirando = null; cadBloqueada = true; cadPintar(); }
+    else if(pedida) toast('Todavía no se encuentra la ubicación: revisá que el GPS del celular esté prendido.', 'info', 7000);
   }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
   cadPantalla();
 }
@@ -264,13 +281,14 @@ function cadVencido(){
       <p>Revisá la conexión y volvé a abrir el link.</p><button class="btn lg" onclick="location.reload()">Reintentar</button></article>`; return; }
   document.title = `Entregas · ${cadK() ? cadK().nombre : ''}`;
   cadPintar();
-  // si ya dio permiso, la ubicación arranca sola; si no, con el botón
-  try{ const p = navigator.permissions && await navigator.permissions.query({ name: 'geolocation' }); if(p && p.state === 'granted') cadUbicacion(false); }catch(_){}
+  // la ubicación arranca sola (la primera vez el celular pregunta; después se acuerda)
+  cadUbicacion(false);
   // cada minuto (y al volver a la página) trae lo último: si la cocina cambia el orden o suma una entrega
   setInterval(() => { if(document.visibilityState === 'visible' && !cadMarcando) cadTraer().then(cadPintar, (e) => { if(/link_vencido/.test(String(e && e.message))) cadVencido(); }); }, 60000);
   document.addEventListener('visibilitychange', () => {
     if(document.visibilityState !== 'visible') return;
     cadPantalla();
+    if(cadMirando == null && !cadBloqueada) cadUbicacion(false);
     if(!cadMarcando) cadTraer().then(cadPintar, () => {});
   });
 })();

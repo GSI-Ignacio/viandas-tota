@@ -14,6 +14,9 @@ let rutaBorrador = null;   // { fecha, asig: { clienteId: { cadeteId, orden } },
 let rutaPosiciones = {};   // cadeteId → [{ lat, lng, at }] del día elegido
 let rutaTimer = null;
 const rutaCallesDe = {};   // cadeteId → { km, min } del recorrido por las calles que se dibujó
+let rutaFoco = null;       // el cadete que se está mirando (su recorrido resalta en el mapa)
+let rutaLinks = {};        // cadeteId → su link vigente
+let rutaRepintar = null;   // vuelve a pintar la lista de Recorridos (si está abierta)
 
 function borradorDesdeEstado(fecha){
   const asig = {};
@@ -90,7 +93,7 @@ function renderRutas(bar, main){
   const ia = main.querySelector('#r-ir-ajustes'); if(ia) ia.addEventListener('click', () => irA('ajustes'));
   const ie = main.querySelector('#r-ir-equipo'); if(ie) ie.addEventListener('click', () => irA('equipo'));
 
-  let mapa = null, capa = null, encuadrado = false;
+  let mapa = null, capa = null, encuadrado = false, focoNuevo = false;
   function dibujarMapa(){
     const el = document.getElementById('r-mapa');
     if(!el || !window.L) return;
@@ -107,43 +110,54 @@ function renderRutas(bar, main){
     const todos = [];
     const co = cocina();
     if(tieneUbicacion(co)){ window.L.marker([co.lat, co.lng], { icon: pinIcono('C', '#241F17', 'home'), zIndexOffset: 1000 }).addTo(capa).bindPopup('<b>Cocina</b>'); todos.push([co.lat, co.lng]); }
+    const enFoco = [];
     for(const kid of [...state.cadetes.map(k => k.id), null]){
       const ps = paradasBorrador(kid);
       const color = kid ? colorCadete(kid) : '#8C8378';
+      const tenue = !!rutaFoco && kid !== rutaFoco, op = tenue ? .25 : 1;
       const linea = tieneUbicacion(co) ? [[co.lat, co.lng]] : [];
       ps.forEach((c, i) => {
         if(!tieneUbicacion(c)) return;
         linea.push([c.lat, c.lng]); todos.push([c.lat, c.lng]);
         const k = cadetePorId(kid);
-        window.L.marker([c.lat, c.lng], { icon: pinIcono(String(i + 1), color, paradaPendiente(c, rutaFecha) ? '' : 'done') }).addTo(capa)
+        if(kid && kid === rutaFoco) enFoco.push([c.lat, c.lng]);
+        window.L.marker([c.lat, c.lng], { icon: pinIcono(String(i + 1), color, paradaPendiente(c, rutaFecha) ? '' : 'done'), opacity: op, zIndexOffset: tenue ? -500 : 0 }).addTo(capa)
           .bindPopup(`<b>${esc(c.nombre)}</b><br>${esc(c.direccion)}<br>${k ? esc(k.nombre) : 'Sin cadete'} · parada ${i + 1}
             ${puedeArmarRutas() ? `<br><button type="button" class="btn quiet mapa-dir" data-dir-mapa="${c.id}">${icon('pin', 12)} Cambiar dirección</button>` : ''}`);
       });
       if(kid && linea.length > 1){
         // mientras llega el camino por las calles va en línea recta, tenue
-        const recto = window.L.polyline(linea, { color, weight: 3, opacity: .35, dashArray: '3 8' }).addTo(miCapa);
+        const recto = window.L.polyline(linea, { color, weight: 3, opacity: .35 * op, dashArray: '3 8' }).addTo(miCapa);
         const pts = linea.map(([lat, lng]) => ({ lat, lng }));
         rutaPorCalles(pts, medioDe(kid)).then((r) => {
           if(!r || !mapa.hasLayer(miCapa)) return;
           recto.remove();
-          window.L.polyline(r.linea, { color, weight: 4, opacity: .85, dashArray: rutaBorrador && rutaBorrador.sucio ? '8 6' : null }).addTo(miCapa);
+          window.L.polyline(r.linea, { color, weight: tenue ? 3 : 5, opacity: .85 * op, dashArray: rutaBorrador && rutaBorrador.sucio ? '8 6' : null }).addTo(miCapa);
           const antes = rutaCallesDe[kid];
           rutaCallesDe[kid] = { km: r.km, min: r.min, clave: medioDe(kid) + puntosRuteo(pts) };
           const g = document.getElementById(`gkm-${kid}`);
-          if(g && (!antes || antes.clave !== rutaCallesDe[kid].clave)) g.textContent = textoKmCalles(rutaCallesDe[kid]);
-        }).catch(() => { if(mapa.hasLayer(miCapa)) recto.setStyle({ opacity: .8, dashArray: rutaBorrador && rutaBorrador.sucio ? '6 6' : null }); });
+          if(g && (!antes || antes.clave !== rutaCallesDe[kid].clave)) g.innerHTML = kmCallesHtml(rutaCallesDe[kid]);
+        }).catch(() => { if(mapa.hasLayer(miCapa)) recto.setStyle({ opacity: .8 * op, dashArray: rutaBorrador && rutaBorrador.sucio ? '6 6' : null }); });
       }
       // por dónde fue (lo que mandó su celular) y dónde está ahora
       const hecho = kid ? (rutaPosiciones[kid] || []) : [];
-      if(hecho.length > 1) window.L.polyline(hecho.map(p => [p.lat, p.lng]), { color, weight: 4, opacity: .45, dashArray: '2 7', lineCap: 'round' }).addTo(capa);
+      if(hecho.length > 1) window.L.polyline(hecho.map(p => [p.lat, p.lng]), { color, weight: 4, opacity: .45 * op, dashArray: '2 7', lineCap: 'round' }).addTo(capa);
       if(hecho.length){
         const u = hecho[hecho.length - 1], k = cadetePorId(kid);
         const min = Math.round((Date.now() - new Date(u.at).getTime()) / 60000);
         window.L.marker([u.lat, u.lng], { icon: window.L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15],
-          html: `<span class="cad-vivo ${min > 5 ? 'viejo' : ''}" style="--c:${color}">${esc((k ? k.nombre : '?').slice(0, 1).toUpperCase())}</span>` }), zIndexOffset: 2000 })
+          html: `<span class="cad-vivo ${min > 5 ? 'viejo' : ''}" style="--c:${color}">${esc((k ? k.nombre : '?').slice(0, 1).toUpperCase())}</span>` }), zIndexOffset: 2000, opacity: tenue ? .4 : 1 })
           .addTo(capa).bindPopup(`<b>${esc(k ? k.nombre : 'Cadete')}</b><br>${min < 1 ? 'Ahora' : `Hace ${plural(min, 'minuto')}`}`);
         todos.push([u.lat, u.lng]);
+        if(kid === rutaFoco) enFoco.push([u.lat, u.lng]);
       }
+    }
+    // al elegir un cadete, el mapa se acerca a su recorrido (o vuelve a mostrar todos)
+    if(focoNuevo){
+      focoNuevo = false;
+      const pts = rutaFoco && enFoco.length ? (tieneUbicacion(co) ? [[co.lat, co.lng], ...enFoco] : enFoco) : todos;
+      if(pts.length) mapa.fitBounds(pts, { padding: [36, 36], maxZoom: 16 });
+      encuadrado = true;
     }
     // se encuadra la primera vez; después, el mapa queda donde lo dejaste (se actualiza cada 20 segundos)
     if(todos.length && !encuadrado){ mapa.fitBounds(todos, { padding: [30, 30], maxZoom: 15 }); encuadrado = true; }
@@ -151,39 +165,83 @@ function renderRutas(bar, main){
 
   function pintarLista(){
     const cont = document.getElementById('r-lista');
-    const grupos = [...state.cadetes.filter(k => k.activo || paradasBorrador(k.id).length).map(k => ({ k, kid: k.id })), { k: null, kid: null }];
-    cont.innerHTML = grupos.map(({ k, kid }) => {
-      const ps = paradasBorrador(kid);
-      if(!k && !ps.length) return '';
+    const hoyEs = rutaFecha === todayStr();
+    const cadetes = state.cadetes.filter(k => k.activo || paradasBorrador(k.id).length);
+    const sinCadete = paradasBorrador(null);
+    const totalPlatos = delDia.reduce((s, c) => s + platosParada(c, rutaFecha), 0);
+    // una parada: arrastrable, con a quién, dónde y qué lleva; tocarla cambia la dirección
+    const parada = (c, i, kid, n) => {
+      const hecha = !paradaPendiente(c, rutaFecha);
+      return `<li class="stop rt-parada ${hecha ? 'hecha' : ''} ${editable ? 'edita' : ''}" data-c="${c.id}" ${editable ? 'draggable="true" title="Arrastrala para cambiar el orden o pasarla a otro cadete"' : ''}>
+        ${editable ? '<span class="rt-asa" aria-hidden="true"></span>' : ''}
+        <span class="ord">${hecha ? icon('check', 12) : i + 1}</span>
+        <div class="t" ${editable ? `data-dir="${c.id}" role="button" tabindex="0" title="Cambiar la dirección"` : ''}>
+          <div class="n">${esc(c.nombre)}${hecha ? ' <span class="tag ok">Entregado</span>' : ''}</div>
+          <div class="s">${tieneUbicacion(c) ? '' : '<span class="sin-ubic">Sin ubicación · </span>'}${esc(c.direccion || 'Sin dirección')}</div>
+          <div class="s lleva">${esc(queLleva(c, rutaFecha))}</div></div>
+        ${editable ? `<div class="rt-mover">
+          <select class="inp sm" data-asignar="${c.id}" aria-label="Pasar ${esc(c.nombre)} a otro cadete" title="Pasar a otro cadete">
+            <option value="" ${!kid ? 'selected' : ''}>Sin cadete</option>
+            ${state.cadetes.filter(x => x.activo || x.id === kid).map(x => `<option value="${x.id}" ${x.id === kid ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select>
+          <span class="rt-flechas"><button class="iconbtn sm" data-sube="${c.id}" aria-label="Subir" ${i === 0 ? 'disabled' : ''}>${icon('up', 13)}</button>
+            <button class="iconbtn sm" data-baja="${c.id}" aria-label="Bajar" ${i === n - 1 ? 'disabled' : ''}>${icon('down', 13)}</button></span></div>` : ''}
+      </li>`;
+    };
+    // la tarjeta de un cadete: quién es, cómo reparte, su link, cuánto lleva, cómo va y sus paradas
+    const tarjeta = (k) => {
+      const kid = k ? k.id : null, ps = paradasBorrador(kid);
+      const platos = ps.reduce((s, c) => s + platosParada(c, rutaFecha), 0), hechas = ps.filter(c => !paradaPendiente(c, rutaFecha)).length;
       const km = largoRecorrido(cocina(), ps.filter(tieneUbicacion));
-      const viandas = ps.reduce((s, c) => s + platosParada(c, rutaFecha), 0);
       const hecho = kid ? rutaPosiciones[kid] || [] : [], ult = hecho[hecho.length - 1];
       const vivo = ult ? Math.round((Date.now() - new Date(ult.at).getTime()) / 60000) : null;
-      const tramos = mapsRecorrido(cocina(), ps, k ? k.medio : 'vehiculo');
-      const wa = k && k.telefono && ps.length ? waLink(k.telefono, textoRutaWhatsApp(k, ps)) : '';
-      return `<div class="ghead" data-kid="${kid || ''}">${k ? `<span class="dot" style="--c:${k.color}"></span>` : ''}
-          <span class="gname" ${k && editable ? `data-editar-cadete="${k.id}" role="button" tabindex="0" title="Editar el cadete"` : ''}>${k ? esc(k.nombre) : 'Sin cadete'}</span>
-          <span class="gcount">${plural(ps.length, 'parada')} · ${plural(viandas, 'plato')}<span id="gkm-${kid || 'sin'}">${kid && rutaCallesDe[kid] ? textoKmCalles(rutaCallesDe[kid]) : km ? ` · ≈${km.toFixed(1)} km` : ''}</span></span>
-          ${k && state.versionBase >= 21 ? `<span class="gmedio" role="group" aria-label="Cómo reparte ${esc(k.nombre)}">
-              ${['vehiculo', 'pie'].map(m => `<button type="button" data-medio="${m}" data-k="${k.id}" aria-pressed="${k.medio === m}" ${editable ? '' : 'disabled'}
-                title="${MEDIOS[m]}: ${m === 'pie' ? 'el recorrido va por donde se camina, sin calles de una mano' : 'el recorrido respeta las manos de las calles'}">${icon(m === 'pie' ? 'pie' : 'moto', 13)}<span>${m === 'pie' ? 'A pie' : 'Vehículo'}</span></button>`).join('')}</span>` : ''}
-          ${vivo != null && rutaFecha === todayStr() ? `<span class="gvivo ${vivo > 5 ? 'viejo' : ''}" title="Última ubicación que mandó su celular">${vivo < 1 ? 'en vivo' : `hace ${vivo} min`}</span>` : ''}</div>
-        ${k && ps.length ? `<div class="gacts">
-          ${tramos.map((t, i) => `<a class="btn" href="${t.url}" target="_blank" rel="noopener">${icon('nav', 13)} ${tramos.length > 1 ? `Tramo ${i + 1}` : 'Google Maps'}</a>`).join('')}
-          ${editable && usaLinksCadete() ? `<button class="btn primary" type="button" data-link="${k.id}" title="El link con el que ve sus entregas de a una">${icon('moto', 13)} Link de ${esc(k.nombre.split(' ')[0])}</button>` : ''}
-          ${wa ? `<a class="btn" href="${wa}" target="_blank" rel="noopener" title="La lista completa, como texto">${icon('wa', 13)} Lista por WhatsApp</a>` : ''}
-          ${editable ? `<button class="btn quiet" data-opt="${k.id}">${icon('optimizar', 13)} Optimizar</button>` : ''}</div>` : ''}
-        ${ps.length ? ps.map((c, i) => `<div class="stop" data-c="${c.id}" ${editable ? 'draggable="true" title="Arrastralo para cambiar el orden o pasarlo a otro cadete"' : ''}>
-            <span class="ord" style="--c:${k ? k.color : 'var(--text-3)'}">${i + 1}</span>
-            <div class="t" ${editable ? `data-dir="${c.id}" role="button" tabindex="0" title="Cambiar la dirección"` : ''}><div class="n">${esc(c.nombre)}${paradaPendiente(c, rutaFecha) ? '' : ` <span class="tag ok">Listo</span>`}</div>
-              <div class="s">${tieneUbicacion(c) ? '' : `<span style="color:var(--bad-ink)">Sin ubicación · </span>`}${esc(c.direccion || 'Sin dirección')}</div>
-              <div class="s lleva">${esc(queLleva(c, rutaFecha))}</div></div>
-            ${editable ? `<select aria-label="Cadete de ${esc(c.nombre)}" data-asignar="${c.id}"><option value="">Sin cadete</option>
-                ${state.cadetes.filter(x => x.activo || x.id === kid).map(x => `<option value="${x.id}" ${x.id === kid ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select>
-              <button class="iconbtn sm" data-sube="${c.id}" aria-label="Subir" ${i === 0 ? 'disabled' : ''}>${icon('up', 13)}</button>
-              <button class="iconbtn sm" data-baja="${c.id}" aria-label="Bajar" ${i === ps.length - 1 ? 'disabled' : ''}>${icon('down', 13)}</button>` : ''}
-          </div>`).join('') : `<div class="empty">Sin paradas asignadas.</div>`}`;
-    }).join('') + (sinUbic.length && esDueno() ? `<div class="empty">${plural(sinUbic.length, 'cliente')} sin ubicación en el mapa: tocalo para buscar su dirección. ${sinUbic.slice(0, 6).map(c => `<button class="btn quiet" data-ubicar="${c.id}">${icon('pin', 12)} ${esc(c.nombre)}</button>`).join('')}</div>` : '');
+      const link = kid ? rutaLinks[kid] : null;
+      if(!k) return `<section class="rt-cad sin" data-kid="">
+          <header class="rt-cab"><span class="rt-av">${icon('alerta', 15)}</span>
+            <div class="rt-quien"><b>${plural(ps.length, 'parada sin cadete', 'paradas sin cadete')}</b>
+              <span>Nadie las lleva todavía: arrastralas a un cadete${editable && state.cadetes.some(x => x.activo) ? ' o usá «Repartir por zonas»' : ''}.</span></div></header>
+          <ol class="rt-paradas">${ps.map((c, i) => parada(c, i, null, ps.length)).join('')}</ol></section>`;
+      const tramos = mapsRecorrido(cocina(), ps, k.medio);
+      const wa = k.telefono && ps.length ? waLink(k.telefono, textoRutaWhatsApp(k, ps)) : '';
+      return `<section class="rt-cad ${rutaFoco === kid ? 'foco' : ''} ${rutaFoco && rutaFoco !== kid ? 'tenue' : ''}" data-kid="${kid}" style="--c:${k.color}">
+        <header class="rt-cab" data-foco="${kid}" role="button" tabindex="0" title="${rutaFoco === kid ? 'Ver todos en el mapa' : 'Ver solo su recorrido en el mapa'}">
+          <span class="rt-av">${esc(k.nombre.slice(0, 1).toUpperCase())}</span>
+          <div class="rt-quien"><b>${esc(k.nombre)}</b>
+            <span>${icon(k.medio === 'pie' ? 'pie' : 'moto', 12)} ${k.medio === 'pie' ? 'Caminando' : 'En vehículo'}
+              ${usaLinksCadete() ? `· ${link ? `<span class="rt-ok">${icon('check', 11)} link ${link.desde === link.hasta ? 'de hoy' : `hasta el ${esc(nombreDia(link.hasta).toLowerCase())}`}</span>` : '<span class="rt-falta">sin link</span>'}` : ''}</span></div>
+          ${vivo != null && hoyEs ? `<span class="gvivo ${vivo > 5 ? 'viejo' : ''}" title="Última ubicación que mandó su celular">${vivo < 1 ? 'en vivo' : `hace ${vivo} min`}</span>` : ''}
+          ${editable ? `<button class="iconbtn sm" type="button" data-editar-cadete="${kid}" title="Editar el cadete" aria-label="Editar a ${esc(k.nombre)}">${icon('editar', 13)}</button>` : ''}
+        </header>
+        <div class="rt-datos">
+          <span><b>${ps.length}</b> ${ps.length === 1 ? 'parada' : 'paradas'}</span>
+          <span><b>${platos}</b> ${platos === 1 ? 'plato' : 'platos'}</span>
+          <span id="gkm-${kid}">${rutaCallesDe[kid] ? kmCallesHtml(rutaCallesDe[kid]) : km ? `≈<b>${km.toFixed(1).replace('.', ',')}</b> km` : ''}</span>
+          ${ps.length && hoyEs ? `<span class="rt-hechas"><b>${hechas}</b> de ${ps.length} entregadas</span>` : ''}
+        </div>
+        ${ps.length && hoyEs && hechas ? `<div class="rt-barra"><i style="width:${Math.round(hechas * 100 / ps.length)}%"></i></div>` : ''}
+        <div class="rt-acc">
+          ${editable && usaLinksCadete() ? `<button class="btn ${link ? '' : 'primary'}" type="button" data-link="${kid}" title="El link con el que ve sus entregas de a una">${icon('moto', 13)} ${link ? 'Link' : 'Crear link'}</button>` : ''}
+          ${editable && ps.length > 1 ? `<button class="btn" type="button" data-opt="${kid}" title="El orden más corto por las calles desde la cocina">${icon('optimizar', 13)} Optimizar</button>` : ''}
+          ${tramos.map((t, i) => `<a class="btn quiet" href="${t.url}" target="_blank" rel="noopener">${icon('nav', 13)} ${tramos.length > 1 ? `Tramo ${i + 1}` : 'Google Maps'}</a>`).join('')}
+          ${wa ? `<a class="btn quiet" href="${wa}" target="_blank" rel="noopener" title="La lista completa, como texto">${icon('wa', 13)} Lista</a>` : ''}
+          ${state.versionBase >= 21 ? `<span class="gmedio" role="group" aria-label="Cómo reparte ${esc(k.nombre)}">
+            ${['vehiculo', 'pie'].map(m => `<button type="button" data-medio="${m}" data-k="${kid}" aria-pressed="${k.medio === m}" ${editable ? '' : 'disabled'}
+              title="${MEDIOS[m]}: ${m === 'pie' ? 'el recorrido va por donde se camina, sin calles de una mano' : 'el recorrido respeta las manos de las calles'}">${icon(m === 'pie' ? 'pie' : 'moto', 13)}<span>${m === 'pie' ? 'A pie' : 'Vehículo'}</span></button>`).join('')}</span>` : ''}
+        </div>
+        <ol class="rt-paradas">${ps.length ? ps.map((c, i) => parada(c, i, kid, ps.length)).join('')
+          : `<li class="rt-vacio">${editable ? 'Sin paradas: arrastrá una acá, o elegí a este cadete en una parada.' : 'Sin paradas.'}</li>`}</ol>
+      </section>`;
+    };
+    cont.innerHTML = `<div class="rt-resumen">
+        <span><b>${delDia.length}</b> ${delDia.length === 1 ? 'parada' : 'paradas'} · <b>${totalPlatos}</b> ${totalPlatos === 1 ? 'plato' : 'platos'} · <b>${cadetes.length}</b> ${cadetes.length === 1 ? 'cadete' : 'cadetes'}</span>
+        ${sinCadete.length ? `<span class="rt-alerta">${icon('alerta', 13)} ${plural(sinCadete.length, 'sin cadete')}</span>` : ''}
+        ${rutaFoco ? '<button class="btn quiet" type="button" id="rt-todos">Ver todos en el mapa</button>' : ''}</div>
+      ${rutaBorrador.sucio ? `<div class="rt-sucio">${icon('alerta', 14)}<span>Hay cambios sin guardar: los cadetes todavía ven el orden anterior.</span>
+        <button class="btn" type="button" data-rt="descartar">Descartar</button><button class="btn primary" type="button" data-rt="guardar">${icon('check', 13)} Guardar rutas</button></div>` : ''}
+      ${!cadetes.length ? `<div class="calm">${icon('moto')} Todavía no hay cadetes. ${editable ? 'Sumalos con <b>+ Cadete</b>, arriba.' : ''}</div>` : ''}
+      ${sinCadete.length ? tarjeta(null) : ''}
+      ${cadetes.map(tarjeta).join('')}
+      ${sinUbic.length && esDueno() ? `<div class="rt-ubic">${icon('pin', 14)}<span>${plural(sinUbic.length, 'cliente')} sin ubicación en el mapa: tocalo para buscar su dirección.</span>
+        <div>${sinUbic.slice(0, 8).map(c => `<button class="btn quiet" data-ubicar="${c.id}">${esc(c.nombre)}</button>`).join('')}</div></div>` : ''}`;
 
     const tocar = () => { rutaBorrador.sucio = true; render(); };
     cont.querySelectorAll('[data-asignar]').forEach(s => s.addEventListener('change', () => {
@@ -217,7 +275,15 @@ function renderRutas(bar, main){
       t.addEventListener('click', abrir);
       t.addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); abrir(); } });
     });
-    cont.querySelectorAll('[data-editar-cadete]').forEach(n => n.addEventListener('click', () => abrirCadete(n.dataset.editarCadete)));
+    cont.querySelectorAll('[data-editar-cadete]').forEach(n => n.addEventListener('click', (e) => { e.stopPropagation(); abrirCadete(n.dataset.editarCadete); }));
+    cont.querySelectorAll('[data-foco]').forEach(h => {
+      const enfocar = () => { rutaFoco = rutaFoco === h.dataset.foco ? null : h.dataset.foco; focoNuevo = true; pintarLista(); dibujarMapa(); };
+      h.addEventListener('click', (e) => { if(e.target.closest('button, a')) return; enfocar(); });
+      h.addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); enfocar(); } });
+    });
+    const td = cont.querySelector('#rt-todos'); if(td) td.addEventListener('click', () => { rutaFoco = null; focoNuevo = true; pintarLista(); dibujarMapa(); });
+    // guardar o descartar desde el aviso de cambios (los mismos de arriba)
+    cont.querySelectorAll('[data-rt]').forEach(b => b.addEventListener('click', () => { const x = document.getElementById(b.dataset.rt === 'guardar' ? 'r-guardar' : 'r-descartar'); if(x) x.click(); }));
     if(editable) arrastrarParadas(cont, tocar);
   }
 
@@ -254,7 +320,9 @@ function renderRutas(bar, main){
     });
   }
 
+  rutaRepintar = pintarLista;
   pintarLista();
+  if(usaLinksCadete()) cargarLinksRecorridos();
   cargarLeaflet().then(dibujarMapa).catch(() => { const el = document.getElementById('r-mapa'); if(el) el.innerHTML = '<div class="stub"><p>No se pudo cargar el mapa. Revisá la conexión.</p></div>'; });
   const traerPosiciones = async () => {
     try{ rutaPosiciones = await posicionesDelDia(rutaFecha); }catch(_){ return; }
@@ -268,8 +336,13 @@ function renderRutas(bar, main){
   }
 }
 
-// "· 4,2 km · 13 min" (por las calles, en auto o moto)
-const textoKmCalles = (r) => ` · ${r.km.toFixed(1).replace('.', ',')} km · ${Math.max(1, Math.round(r.min))} min`;
+// "4,2 km · 13 min" por las calles (en vehículo o caminando)
+const kmCallesHtml = (r) => `<b>${r.km.toFixed(1).replace('.', ',')}</b> km · <b>${Math.max(1, Math.round(r.min))}</b> min`;
+/* Los links vigentes de los cadetes, para mostrar en su tarjeta si ya tienen uno. */
+async function cargarLinksRecorridos(){
+  try{ const ls = await linksVigentes(); rutaLinks = {}; for(const l of ls) if(!rutaLinks[l.cadete_id]) rutaLinks[l.cadete_id] = l; }catch(_){ return; }
+  if(rutaRepintar && activeTab === 'rutas' && document.getElementById('r-lista')) rutaRepintar();
+}
 
 /* Arrastrar una parada: entre dos paradas cambia el orden (o la pasa a ese cadete); sobre el nombre de
    un cadete, va al final de su recorrido. */
@@ -292,20 +365,20 @@ function arrastrarParadas(cont, tocar){
     row.addEventListener('dragend', () => { id = null; row.classList.remove('arrastrando'); limpiar(); });
     row.addEventListener('dragover', (e) => {
       if(!id || id === row.dataset.c) return;
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       const r = row.getBoundingClientRect(), antes = e.clientY < r.top + r.height / 2;
       limpiar(); row.classList.add(antes ? 'drop-antes' : 'drop-despues');
     });
     row.addEventListener('drop', (e) => {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       if(!id || id === row.dataset.c) return;
       const antes = row.classList.contains('drop-antes'), destino = rutaBorrador.asig[row.dataset.c];
       ubicar(id, destino ? destino.cadeteId : null, antes ? row.dataset.c : null, antes ? null : row.dataset.c);
     });
   });
-  cont.querySelectorAll('.ghead[data-kid]').forEach(h => {
+  cont.querySelectorAll('.rt-cad[data-kid]').forEach(h => {
     h.addEventListener('dragover', (e) => { if(!id) return; e.preventDefault(); limpiar(); h.classList.add('drop'); });
-    h.addEventListener('dragleave', () => h.classList.remove('drop'));
+    h.addEventListener('dragleave', (e) => { if(!h.contains(e.relatedTarget)) h.classList.remove('drop'); });
     h.addEventListener('drop', (e) => { e.preventDefault(); if(id) ubicar(id, h.dataset.kid || null, null, null); });
   });
 }
@@ -352,11 +425,11 @@ async function abrirLinkCadete(k){
       const an = el.querySelector('#lk-anular');
       if(an) an.addEventListener('click', async () => {
         if(!(await confirmar('Anular el link', `¿Anular el link de <b>${esc(k.nombre)}</b>? Deja de servir enseguida.`, { ok: 'Anular', peligro: true }))) return;
-        try{ await anularLinksCadete(k); toast('Link anulado.'); abrirLinkCadete(k); }catch(e){ toastError('No se pudo anular', e); }
+        try{ await anularLinksCadete(k); toast('Link anulado.'); cargarLinksRecorridos(); abrirLinkCadete(k); }catch(e){ toastError('No se pudo anular', e); }
       });
       el.querySelectorAll('[data-dias]').forEach(b => b.addEventListener('click', async () => {
         b.classList.add('busy');
-        try{ await crearLinkCadete(k, Number(b.dataset.dias)); toast(`Link nuevo para <b>${esc(k.nombre)}</b>: mandáselo por WhatsApp.`); abrirLinkCadete(k); }
+        try{ await crearLinkCadete(k, Number(b.dataset.dias)); toast(`Link nuevo para <b>${esc(k.nombre)}</b>: mandáselo por WhatsApp.`); cargarLinksRecorridos(); abrirLinkCadete(k); }
         catch(e){ toastError('No se pudo crear el link', e); b.classList.remove('busy'); }
       }));
     }
