@@ -259,6 +259,37 @@ function bindUbicacion(el, pre, datos){
   return ubic;
 }
 
+/* Cambiar rápido la dirección de un cliente (desde Recorridos): la dirección, el punto en el mapa y la
+   referencia para el cadete. Es la de su ficha: queda para todos los días. */
+function abrirDireccionCliente(c, alGuardar){
+  abrirPanel({
+    titulo: `${icon('pin', 14)} Dirección de ${esc(c.nombre)}`,
+    ancho: 'medio',
+    html: `${ubicacionFormHtml('dq', c)}
+      <div class="field" style="margin-top:12px"><label for="dq-referencia">Referencia para el cadete</label>
+        <input type="text" id="dq-referencia" value="${esc(c.referencia)}" placeholder="Piso, depto, portón verde…"></div>
+      <p class="help">Queda en su ficha para todos los días. <button type="button" class="pn-link" id="dq-ficha">Abrir la ficha completa</button></p>`,
+    pie: '<button class="btn lg" id="dq-cancelar">Cancelar</button><button class="btn lg primary" id="dq-guardar">Guardar dirección</button>',
+    onMount: (el) => {
+      const ubic = bindUbicacion(el, 'dq', c);
+      const g = el.querySelector('#dq-guardar');
+      formulario(el, { botones: g, cambios: true, extra: () => [ubic.lat, ubic.lng] });
+      el.querySelector('#dq-cancelar').addEventListener('click', () => cerrarPanel());
+      el.querySelector('#dq-ficha').addEventListener('click', () => { irA('clientes'); abrirCliente(c.id); });
+      g.addEventListener('click', async () => {
+        g.disabled = true;
+        try{
+          await guardarCliente(c.id, { ...c, direccion: el.querySelector('#dq-direccion').value.trim(), referencia: el.querySelector('#dq-referencia').value.trim(),
+                                       lat: ubic.lat ?? null, lng: ubic.lng ?? null });
+          toast(`Dirección de <b>${esc(c.nombre)}</b> guardada.`);
+          cerrarPanel();
+          if(alGuardar) alGuardar();
+        }catch(e){ toastError('No se pudo guardar la dirección', e); g.disabled = false; }
+      });
+    }
+  });
+}
+
 /* ---------- ficha del cliente ---------- */
 function abrirCliente(id){
   const c = id ? clientePorId(id) : null;

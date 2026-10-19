@@ -16,7 +16,7 @@ const TABS = [
   { id: 'entregas', label: 'Entregas', icon: 'entregas', grupo: 'Operación', roles: ['dueno', 'ayudante'], render: renderEntregas,
     badge: () => { const n = clientesDelDia(todayStr()).filter(c => clientePendiente(c, todayStr())).length; return n ? { n } : null; } },
   { id: 'mi-ruta',  label: 'Mi ruta',  icon: 'moto',     grupo: 'Operación', roles: ['cadete'], render: renderMiRuta },
-  { id: 'rutas',    label: 'Rutas',    icon: 'rutas',    grupo: 'Operación', roles: ['dueno', 'ayudante'], render: renderRutas },
+  { id: 'rutas',    label: 'Recorridos', icon: 'rutas',  grupo: 'Operación', roles: ['dueno', 'ayudante'], render: renderRutas },
   { id: 'clientes', label: 'Clientes', icon: 'clientes', grupo: 'Gestión',   roles: ['dueno', 'ayudante'], render: renderClientes,
     // solo los packs de dietas sin créditos o por quedarse sin
     badge: () => { const sin = clientesSinSaldo().length, n = sin + clientesPorVencer().length; return n ? { n, alert: sin > 0 } : null; } },
@@ -31,7 +31,7 @@ const TABS = [
 
 /* Pestañas que se muestran. Las demás siguen en el código, listas para volver
    a sumarlas acá. 'mi-ruta' es la única pantalla del cadete. */
-let PESTANAS_VISIBLES = ['hoy', 'comandas', 'clientes', 'stock', 'menus', 'estadisticas', 'mi-ruta'];
+let PESTANAS_VISIBLES = ['hoy', 'comandas', 'rutas', 'clientes', 'stock', 'menus', 'estadisticas', 'mi-ruta'];
 
 let activeTab = null;
 const tabsVisibles = () => TABS.filter(t => (!t.roles || t.roles.includes(state.perfil.rol)) && (!PESTANAS_VISIBLES || PESTANAS_VISIBLES.includes(t.id)));

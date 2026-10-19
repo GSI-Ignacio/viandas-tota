@@ -93,8 +93,7 @@ async function abrirResumenSemana(c, desde){
       el.querySelectorAll('[data-sem]').forEach(b => b.addEventListener('click', () => abrirResumenSemana(c, sumarDias(desde, Number(b.dataset.sem)))));
       el.querySelector('#sem-cerrar').addEventListener('click', () => cerrarPanel());
       el.querySelector('#sem-copiar').addEventListener('click', async () => {
-        try{ await navigator.clipboard.writeText(textoWA); toast('Resumen copiado: pegalo en WhatsApp.'); }
-        catch(e){ toast('No se pudo copiar el resumen.', 'err'); }
+        copiarConAviso(textoWA, 'Resumen copiado: pegalo en WhatsApp.');
       });
       const bp = el.querySelector('#sem-pago');
       if(bp) bp.addEventListener('click', () => dialogoPagoPedidos(c, () => { refrescar(); abrirResumenSemana(c, desde); }, k && k.saldo > 0 ? k.saldo : entregado));

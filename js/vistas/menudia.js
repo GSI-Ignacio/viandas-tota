@@ -29,16 +29,7 @@ function bindCartaDia(root){
 }
 
 async function copiarCartaDia(fecha){
-  const txt = textoCartaDia(fecha);
-  let ok = false;
-  try{ await navigator.clipboard.writeText(txt); ok = true; }
-  catch(e){
-    const ta = document.createElement('textarea'); ta.value = txt; ta.style.cssText = 'position:fixed;opacity:0';
-    document.body.append(ta); ta.select();
-    try{ ok = document.execCommand('copy'); }catch(e2){ ok = false; }
-    ta.remove();
-  }
-  toast(ok ? 'Menú copiado: pegalo en WhatsApp.' : 'No se pudo copiar el menú.', ok ? 'ok' : 'error');
+  copiarConAviso(textoCartaDia(fecha), 'Menú copiado: pegalo en WhatsApp.');
 }
 
 // Precio que se propone para un plato nuevo del día: el del menú del día, o el que más se repite en su categoría.

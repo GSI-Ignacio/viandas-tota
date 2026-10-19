@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mis entregas</title>
+<meta name="theme-color" content="#0E0E10">
+<meta name="robots" content="noindex">
+<!-- La página del cadete: se abre con el link que le mandan por WhatsApp (cadete.html?t=…), sin usuario. -->
+<script>try{var t=localStorage.getItem('viandas.tema');
+document.documentElement.dataset.theme=(t==='dark'||t==='light')?t:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');}
+catch(e){document.documentElement.dataset.theme='light';}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="css/app.css?v=97">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="cad-body">
+<main class="cad" id="cad" aria-live="polite"><div class="boot" style="min-height:70vh"><div><span class="boot-txt">Cargando tus entregas…</span></div></div></main>
+<div id="overlay-root"></div>
+<div id="toast-root" class="toasts" aria-live="polite"></div>
+
+<!-- en la compu (127.0.0.1 / localhost) se usa la base local si existe js/config.local.js; en Netlify, siempre producción -->
+<script>if(/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) document.write('<script src="js/config.local.js?' + Date.now() + '"><\/script>');</script>
+<script src="js/config.js?v=97"></script>
+<script src="js/util.js?v=97"></script>
+<script src="js/data.js?v=97"></script>
+<script src="js/cadete.js?v=97"></script>
+</body>
+</html>

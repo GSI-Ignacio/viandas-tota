@@ -378,7 +378,7 @@ function abrirCompartirCarta(){
     onMount: async (el) => {
       el.querySelector('#cc-listo').addEventListener('click', () => cerrarPanel());
       el.querySelector('#cc-copiar-link').addEventListener('click', async () => {
-        try{ await navigator.clipboard.writeText(linkCarta()); toast('Link copiado.'); }catch(_){ el.querySelector('#cc-url').select(); toast('Copialo con Ctrl+C.', 'info'); }
+        copiarConAviso(linkCarta(), 'Link copiado.', el.querySelector('#cc-copiar-link'));
       });
       let blob;
       try{ blob = await imagenCarta(); }

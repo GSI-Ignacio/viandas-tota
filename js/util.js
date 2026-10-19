@@ -103,7 +103,8 @@ const ICON_PATHS = {
   menu: '<path d="M3 9.5a5 5 0 0 1 10 0z"/><path d="M1.8 11.5h12.4M8 3v1.5"/>',
   deshacer: '<path d="M5.5 3.5 2.8 6.2l2.7 2.7"/><path d="M3 6.2h6.3a3.7 3.7 0 0 1 0 7.4H7"/>',
   grafico: '<path d="M2 13.5h12"/><path d="M4 11V8M7 11V4.5M10 11V6.5M13 11V9"/>',
-  saltear: '<path d="M3.5 3.8 9.5 8l-6 4.2z"/><path d="M12.2 3.8v8.4"/>'
+  saltear: '<path d="M3.5 3.8 9.5 8l-6 4.2z"/><path d="M12.2 3.8v8.4"/>',
+  pie: '<circle cx="8.6" cy="2.5" r="1.3"/><path d="M7.6 5.2 6.4 9l2.1 1.8.7 3.6"/><path d="M6.4 9l-1.5 4.6"/><path d="M7.6 5.2l2.3.9 1.3 2.2"/><path d="M7.6 5.2 5.4 6.8 4.7 9"/>'
 };
 function icon(name, size = 16, cls = ''){
   return `<svg class="${cls}" viewBox="0 0 16 16" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
@@ -392,6 +393,37 @@ function waNumero(tel){
   return '549' + d;
 }
 function waLink(tel, texto){ const n = waNumero(tel); return n ? `https://wa.me/${n}?text=${encodeURIComponent(texto)}` : ''; }
+/* Copiar al portapapeles: primero de la forma nueva; si el navegador no la deja (pasa en algunos navegadores
+   que vienen dentro de otras apps), de la forma vieja. Devuelve si se pudo. */
+async function copiarTexto(texto){
+  try{ if(navigator.clipboard && window.isSecureContext){ await navigator.clipboard.writeText(texto); return true; } }catch(_){}
+  const ta = document.createElement('textarea');
+  ta.value = texto; ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+  document.body.append(ta);
+  ta.focus(); ta.select(); ta.setSelectionRange(0, texto.length);
+  let ok = false;
+  try{ ok = document.execCommand('copy'); }catch(_){ ok = false; }
+  ta.remove();
+  return ok;
+}
+/* Copia y avisa; si el navegador no deja copiar, muestra el texto seleccionado para copiarlo a mano
+   (así no queda en el portapapeles lo que había antes sin darse cuenta). */
+async function copiarConAviso(texto, aviso = 'Copiado.', boton = null){
+  if(await copiarTexto(texto)){
+    toast(aviso);
+    if(boton){ const antes = boton.innerHTML; boton.innerHTML = `${icon('check', 13)} Copiado`; setTimeout(() => { if(boton.isConnected) boton.innerHTML = antes; }, 2000); }
+    return true;
+  }
+  dialogo({
+    titulo: 'Copialo a mano',
+    texto: 'Este navegador no deja copiar solo: ya está seleccionado, copialo con Ctrl+C (o Cmd+C en Mac; en el celular, mantené apretado y "Copiar").',
+    html: `<textarea class="inp" readonly rows="5" id="dlg-copia" style="width:100%;font-size:14px">${esc(texto)}</textarea>`,
+    botones: [{ id: 'ok', label: 'Listo', clase: 'primary' }],
+    onMount: (el) => { const t = el.querySelector('#dlg-copia'); setTimeout(() => { t.focus(); t.select(); }, 60); }
+  });
+  return false;
+}
 // un mensaje para mandar a quien sea: WhatsApp pide elegir el chat
 const waTexto = (texto) => `https://wa.me/?text=${encodeURIComponent(texto)}`;
 function telLink(tel){ const d = telDigitos(tel); return d ? `tel:${d}` : ''; }
@@ -401,26 +433,71 @@ function mapsPunto(o){
   return tieneUbicacion(o) ? `https://www.google.com/maps/search/?api=1&query=${coordTxt(o)}`
                            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.direccion || '')}`;
 }
-function mapsNavegar(o){
-  return tieneUbicacion(o) ? `https://www.google.com/maps/dir/?api=1&destination=${coordTxt(o)}&travelmode=driving`
-                           : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.direccion || '')}&travelmode=driving`;
+// en Google Maps: manejando o caminando, según cómo reparte el cadete
+const modoMaps = (medio) => medio === 'pie' ? 'walking' : 'driving';
+function mapsNavegar(o, medio = 'vehiculo'){
+  return tieneUbicacion(o) ? `https://www.google.com/maps/dir/?api=1&destination=${coordTxt(o)}&travelmode=${modoMaps(medio)}`
+                           : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.direccion || '')}&travelmode=${modoMaps(medio)}`;
 }
 /* Recorrido en Google Maps: hasta 9 paradas intermedias por enlace, así que se parte en tramos. */
-function mapsRecorrido(origen, paradas){
+function mapsRecorrido(origen, paradas, medio = 'vehiculo'){
   const pts = paradas.filter(tieneUbicacion);
   const tramos = [];
   let desde = tieneUbicacion(origen) ? origen : null;
   for(let i = 0; i < pts.length; i += 10){
     const grupo = pts.slice(i, i + 10);
     const destino = grupo[grupo.length - 1];
-    const medio = grupo.slice(0, -1);
-    let url = `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${coordTxt(destino)}`;
+    const intermedios = grupo.slice(0, -1);
+    let url = `https://www.google.com/maps/dir/?api=1&travelmode=${modoMaps(medio)}&destination=${coordTxt(destino)}`;
     if(desde) url += `&origin=${coordTxt(desde)}`;
-    if(medio.length) url += `&waypoints=${medio.map(coordTxt).join('%7C')}`;
+    if(intermedios.length) url += `&waypoints=${intermedios.map(coordTxt).join('%7C')}`;
     tramos.push({ url, desde: i + 1, hasta: i + grupo.length });
     desde = destino;
   }
   return tramos;
+}
+
+/* ---------- recorridos por las calles (OSRM sobre OpenStreetMap, el servidor público de FOSSGIS) ----------
+   Se pide una vez por recorrido y queda guardado: el mapa se vuelve a dibujar seguido y no hace falta
+   pedirlo de nuevo. Si el servicio no responde, se dibuja en línea recta como antes. */
+// en vehículo respeta las manos de las calles; caminando, no
+const RUTEO_URL = { vehiculo: 'https://routing.openstreetmap.de/routed-car', pie: 'https://routing.openstreetmap.de/routed-foot' };
+const rutasCalles = new Map();
+const puntosRuteo = (pts) => pts.map(p => `${Number(p.lng).toFixed(5)},${Number(p.lat).toFixed(5)}`).join(';');
+/* El camino por las calles que une los puntos en ese orden: { linea: [[lat, lng]], km, min } */
+function rutaPorCalles(pts, medio = 'vehiculo'){
+  if(pts.length < 2) return Promise.resolve(null);
+  const base = RUTEO_URL[medio] || RUTEO_URL.vehiculo, k = medio + ':' + puntosRuteo(pts);
+  if(rutasCalles.has(k)) return rutasCalles.get(k);
+  const p = (async () => {
+    const linea = []; let m = 0, seg = 0;
+    // de a 25 puntos por pedido: cada tramo arranca donde terminó el anterior
+    for(let i = 0; i < pts.length - 1; i += 24){
+      const r = await fetch(`${base}/route/v1/driving/${puntosRuteo(pts.slice(i, i + 25))}?overview=full&geometries=geojson`);
+      if(!r.ok) throw new Error('El servicio de recorridos no respondió (' + r.status + ')');
+      const d = await r.json();
+      if(d.code !== 'Ok' || !d.routes || !d.routes[0]) throw new Error('No se encontró un camino (' + d.code + ')');
+      linea.push(...d.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]));
+      m += d.routes[0].distance; seg += d.routes[0].duration;
+    }
+    return { linea, km: m / 1000, min: seg / 60 };
+  })();
+  rutasCalles.set(k, p);
+  p.catch(() => rutasCalles.delete(k));   // si falló, se vuelve a intentar la próxima vez
+  return p;
+}
+/* El orden más corto por las calles para pasar por todos los puntos saliendo del origen (sin volver).
+   Devuelve los puntos ordenados, o null si no se pudo (y se ordena por cercanía en línea recta). */
+async function ordenPorCalles(origen, pts, medio = 'vehiculo'){
+  if(pts.length < 2 || pts.length > 24 || !tieneUbicacion(origen)) return null;
+  try{
+    const r = await fetch(`${RUTEO_URL[medio] || RUTEO_URL.vehiculo}/trip/v1/driving/${puntosRuteo([origen, ...pts])}?source=first&roundtrip=false&overview=false`);
+    if(!r.ok) return null;
+    const d = await r.json();
+    if(d.code !== 'Ok' || !d.waypoints) return null;
+    // waypoints viene en el orden en que se mandaron; waypoint_index es su lugar en el viaje
+    return d.waypoints.slice(1).map((w, i) => ({ p: pts[i], k: w.waypoint_index })).sort((a, b) => a.k - b.k).map(x => x.p);
+  }catch(_){ return null; }
 }
 
 /* ---------- geocodificación (OpenStreetMap / Nominatim) ---------- */

@@ -29,7 +29,7 @@ const state = {
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 19;
+const VERSION_BASE_APP = 21;
 
 /* ---------- formas de pago (desde la v14) ----------
    Un pedido se paga en efectivo, por transferencia o con Mercado Pago, o va "a cuenta" (paga después:
@@ -86,7 +86,10 @@ function mapEntrega(r){
   return { id: r.id, clienteId: r.cliente_id, fecha: r.fecha, almuerzo: r.almuerzo || null, cena: r.cena || null,
            cantAlmuerzo: r.cant_almuerzo, cantCena: r.cant_cena, cadeteId: r.cadete_id || null, actualizada: r.updated_at };
 }
-function mapCadete(r){ return { id: r.id, nombre: r.nombre, telefono: r.telefono || '', color: r.color || COLORES_CADETE[0], activo: r.activo !== false }; }
+function mapCadete(r){ return { id: r.id, nombre: r.nombre, telefono: r.telefono || '', color: r.color || COLORES_CADETE[0], activo: r.activo !== false, medio: r.medio === 'pie' ? 'pie' : 'vehiculo' }; }
+// cómo reparte: 'vehiculo' (moto, auto) o 'pie' — cambia el recorrido por las calles (desde la v21)
+const medioDe = (kid) => { const k = cadetePorId(kid); return k ? k.medio : 'vehiculo'; };
+const MEDIOS = { vehiculo: 'En vehículo', pie: 'Caminando' };
 function mapProducto(r){
   return { id: r.id, nombre: r.nombre, unidad: r.unidad || 'unidades', minimo: Number(r.minimo) || 0,
            porVianda: Number(r.por_vianda) || 0, activo: r.activo !== false, stock: Number(r.stock) || 0, esGuarnicion: !!r.es_guarnicion };
@@ -658,6 +661,42 @@ function textoAviso(c){
   const f = isoLocal(new Date(c.avisoSaldoAt)), n = nombreDia(f);
   return n === 'Hoy' ? 'Avisado hoy' : n === 'Ayer' ? 'Avisado ayer' : `Avisado el ${n.toLowerCase()}`;
 }
+/* ---------- links de los cadetes (desde la v20) ----------
+   En lugar de un usuario, cada cadete recibe un link (para hoy o para la semana): lo abre en el celular
+   y ve sus entregas de a una. Al crear uno nuevo, el anterior deja de servir. */
+const usaLinksCadete = () => state.versionBase >= 20;
+function tokenNuevo(){
+  const b = new Uint8Array(24); crypto.getRandomValues(b);
+  return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+const urlLinkCadete = (token) => new URL(`cadete.html?t=${encodeURIComponent(token)}`, location.href).href;
+async function linksVigentes(){
+  const { data, error } = await sb.from('cadete_links').select('*').eq('revocado', false).gte('hasta', todayStr()).order('created_at', { ascending: false });
+  if(error) throw error;
+  return data || [];
+}
+async function anularLinksCadete(k){
+  const { error } = await sb.from('cadete_links').update({ revocado: true }).eq('cadete_id', k.id).eq('revocado', false);
+  if(error) throw error;
+}
+/* dias: 1 = solo hoy; 7 = toda la semana (hoy y los 6 días siguientes) */
+async function crearLinkCadete(k, dias){
+  await anularLinksCadete(k);
+  const hoy = todayStr();
+  const { data, error } = await sb.from('cadete_links').insert({ cadete_id: k.id, token: tokenNuevo(), desde: hoy, hasta: sumarDias(hoy, dias - 1) }).select().single();
+  if(error) throw error;
+  return data;
+}
+/* Por dónde fue cada cadete ese día: { cadeteId: [{ lat, lng, at }] } (la última es dónde está). */
+async function posicionesDelDia(fecha){
+  if(!usaLinksCadete()) return {};
+  const { data, error } = await sb.from('cadete_posiciones').select('cadete_id, lat, lng, at').eq('fecha', fecha).order('at').limit(5000);
+  if(error) throw error;
+  const res = {};
+  for(const r of data || []) (res[r.cadete_id] = res[r.cadete_id] || []).push({ lat: r.lat, lng: r.lng, at: r.at });
+  return res;
+}
+
 /* ---------- avisos por WhatsApp (desde la v19) ----------
    En el perfil de cada pack se elige cuándo se le avisa que se queda sin créditos: nunca, todos los
    días o un día de la semana. Ese día, si le quedan pocos créditos (o ninguno) y todavía no se le
@@ -743,8 +782,21 @@ function ordenDelDia(c, fecha){ const r = rutaDe(c.id, fecha); return r ? r.orde
 const cocina = () => ({ lat: state.config.cocinaLat, lng: state.config.cocinaLng, direccion: state.config.cocinaDireccion });
 function colorCadete(id){ const k = cadetePorId(id); return k ? k.color : '#8C8378'; }
 /* Paradas de un cadete un día, en el orden guardado (o por cercanía si no hay orden). */
+/* ---------- las paradas del reparto ----------
+   Quien recibe viandas ese día (packs y fijos) o tiene un pedido sin cancelar: el cadete le lleva todo junto. */
+const pedidoDelDia = (c, fecha) => { const p = pedidoDe(c.id, fecha); return p && p.estado !== 'cancelada' ? p : null; };
+const paradasDelDia = (fecha) => state.clientes.filter(c => turnosDe(c, fecha).length || pedidoDelDia(c, fecha));
+const paradaPendiente = (c, fecha) => clientePendiente(c, fecha) || (pedidoDelDia(c, fecha) || {}).estado === 'pendiente';
+// cuántos platos lleva: sus viandas y lo del pedido
+const platosParada = (c, fecha) => turnosDe(c, fecha).reduce((s, t) => s + viandasTurno(c, fecha, t), 0) + ((pedidoDelDia(c, fecha) || {}).viandas || 0);
+// qué lleva, en palabras: "2 viandas · 1× Milanesa con puré"
+function queLleva(c, fecha){
+  const ped = pedidoDelDia(c, fecha);
+  return [...turnosDe(c, fecha).map(t => textoVianda(c, fecha, t)),
+          ...(ped ? ped.lineas.filter(l => l.estado !== 'cancelada').map(l => `${l.cantidad}× ${textoLinea(l)}`) : [])].join(' · ');
+}
 function paradasDe(cadeteId, fecha){
-  const lista = clientesDelDia(fecha).filter(c => (cadeteDelDia(c, fecha) || null) === (cadeteId || null));
+  const lista = paradasDelDia(fecha).filter(c => (cadeteDelDia(c, fecha) || null) === (cadeteId || null));
   const conOrden = lista.filter(c => ordenDelDia(c, fecha) != null).sort((a, b) => ordenDelDia(a, fecha) - ordenDelDia(b, fecha));
   const sinOrden = lista.filter(c => ordenDelDia(c, fecha) == null);
   const ubicados = sinOrden.filter(tieneUbicacion), sinUbic = sinOrden.filter(c => !tieneUbicacion(c));
@@ -1162,7 +1214,8 @@ async function listarMovimientos(productoId){
 }
 
 async function guardarCadete(id, datos){
-  const fila = { nombre: datos.nombre, telefono: datos.telefono, color: datos.color, activo: datos.activo };
+  const fila = { nombre: datos.nombre, telefono: datos.telefono, color: datos.color, activo: datos.activo,
+                 ...(state.versionBase >= 21 && datos.medio ? { medio: datos.medio } : {}) };
   const q = id ? sb.from('cadetes').update(fila).eq('id', id).select().single() : sb.from('cadetes').insert(fila).select().single();
   const { data, error } = await q;
   if(error) throw error;

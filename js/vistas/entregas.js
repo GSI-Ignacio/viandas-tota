@@ -288,7 +288,7 @@ function renderEntregas(bar, main){
     }else{
       cont.innerHTML = grupos.map(g => {
         const r = resumenDia(f, g.paradas);
-        const tramos = g.k ? mapsRecorrido(cocina(), g.paradas.filter(c => clientePendiente(c, f))) : [];
+        const tramos = g.k ? mapsRecorrido(cocina(), g.paradas.filter(c => clientePendiente(c, f)), g.k.medio) : [];
         return `<div class="ghead">
             ${g.k ? `<span class="dot" style="--c:${g.k.color}"></span>` : ''}
             <span class="gname">${g.extras ? 'No programados' : g.k ? esc(g.k.nombre) : 'Sin cadete asignado'}</span>
@@ -318,7 +318,8 @@ function renderMiRuta(bar, main){
       <p>Pedile al dueño que te asigne en Equipo → Usuarios.</p></div>`;
     return;
   }
-  const paradas = paradasDe(k.id, hoy);
+  // la vista de siempre, para cadetes con usuario: sus viandas (los pedidos se ven con el link del cadete)
+  const paradas = paradasDe(k.id, hoy).filter(c => turnosDe(c, hoy).length);
   main.innerHTML = `
     ${miRutaMapa && paradas.some(tieneUbicacion) ? '<div class="myroute-map"><div class="map" id="mr-mapa"></div></div>' : ''}
     <div class="sticky-prog" id="mr-prog"></div>
@@ -346,7 +347,7 @@ function renderMiRuta(bar, main){
   function pintar(){
     document.getElementById('mr-prog').innerHTML = progresoHtml(resumenDia(hoy, paradas));
     const pendientes = paradas.filter(c => clientePendiente(c, hoy));
-    const tramos = mapsRecorrido(cocina(), pendientes);
+    const tramos = mapsRecorrido(cocina(), pendientes, k.medio);
     document.getElementById('mr-acts').innerHTML = pendientes.length
       ? tramos.map((t, i) => `<a class="btn lg primary" href="${t.url}" target="_blank" rel="noopener">${icon('nav', 14)} ${tramos.length > 1 ? `Tramo ${i + 1} (paradas ${t.desde}–${t.hasta})` : 'Abrir recorrido en Google Maps'}</a>`).join('')
         + (pendientes.some(c => !tieneUbicacion(c)) ? `<span class="muted" style="align-self:center">Algunas paradas no tienen ubicación en el mapa.</span>` : '')

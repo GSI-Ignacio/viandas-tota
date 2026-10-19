@@ -7,7 +7,7 @@
 -- vuelve a hacer y no se tocan los datos.
 --
 -- Cada actualización nueva se agrega al final de este archivo.
--- Adentro van, en orden, las versiones 5 a 19. Las anteriores (v2 a v4) ya están corridas;
+-- Adentro van, en orden, las versiones 5 a 21. Las anteriores (v2 a v4) ya están corridas;
 -- quedan en la carpeta migraciones/ como historial, junto con cada versión por separado.
 -- ============================================================
 
@@ -1094,6 +1094,275 @@ do $$ begin
 end $$;
 
 create or replace function version_base() returns integer language sql immutable as $$ select 19 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v20 — los cadetes, por link
+--   El dueño o el ayudante arma un link para cada cadete (para hoy o para la
+--   semana) y se lo manda por WhatsApp. El cadete lo abre sin usuario ni
+--   contraseña: ve sus entregas del día de a una, en el orden del recorrido, y
+--   las marca desde ahí. Mientras tiene el link abierto, su ubicación queda
+--   registrada para ver dónde está y por dónde fue.
+--   Un link sirve solo para ese cadete y esas fechas, y se puede anular. Con el
+--   link, la base lo trata igual que a un cadete con usuario: las mismas reglas.
+-- ============================================================
+
+begin;
+
+create table if not exists cadete_links (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default mi_negocio(),
+  cadete_id uuid not null references cadetes(id) on delete cascade,
+  token text not null unique,
+  desde date not null,
+  hasta date not null,
+  revocado boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists cadete_links_cadete_idx on cadete_links (user_id, cadete_id);
+alter table cadete_links enable row level security;
+drop policy if exists "leer" on cadete_links;
+drop policy if exists "crear" on cadete_links;
+drop policy if exists "anular" on cadete_links;
+create policy "leer" on cadete_links for select using (user_id = mi_negocio() and mi_rol() in ('dueno', 'ayudante'));
+create policy "crear" on cadete_links for insert with check (user_id = mi_negocio() and mi_rol() in ('dueno', 'ayudante'));
+create policy "anular" on cadete_links for update using (user_id = mi_negocio() and mi_rol() in ('dueno', 'ayudante')) with check (user_id = mi_negocio());
+grant select, insert, update on cadete_links to authenticated;
+
+create table if not exists cadete_posiciones (
+  id bigserial primary key,
+  user_id uuid not null,
+  cadete_id uuid not null references cadetes(id) on delete cascade,
+  fecha date not null,
+  lat double precision not null,
+  lng double precision not null,
+  precision real,
+  at timestamptz not null default now()
+);
+create index if not exists cadete_posiciones_idx on cadete_posiciones (user_id, fecha, cadete_id, at);
+alter table cadete_posiciones enable row level security;
+drop policy if exists "leer" on cadete_posiciones;
+create policy "leer" on cadete_posiciones for select using (user_id = mi_negocio() and mi_rol() in ('dueno', 'ayudante'));
+grant select on cadete_posiciones to authenticated;
+
+-- la sesión de un link: dentro de las funciones de abajo (después de validar el link) cuenta como la
+-- del cadete. Fuera de ellas no hay forma de fijar estos valores, así que todo sigue igual.
+create or replace function mi_negocio() returns uuid
+language sql stable security definer set search_path = public as $$
+  select coalesce((select negocio_id from miembros where auth_id = auth.uid()), auth.uid(),
+                  nullif(current_setting('app.link_negocio', true), '')::uuid)
+$$;
+create or replace function mi_rol() returns text
+language sql stable security definer set search_path = public as $$
+  select case when auth.uid() is not null then coalesce((select rol from miembros where auth_id = auth.uid()), 'dueno')
+              when nullif(current_setting('app.link_cadete', true), '') is not null then 'cadete' end
+$$;
+create or replace function mi_cadete() returns uuid
+language sql stable security definer set search_path = public as $$
+  select coalesce((select cadete_id from miembros where auth_id = auth.uid()), nullif(current_setting('app.link_cadete', true), '')::uuid)
+$$;
+
+-- el cadete puede marcar entregados (o volver a pendiente) los pedidos de hoy de su ruta; nada más
+create or replace function comandas_validar() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  rol text := mi_rol();
+  c clientes%rowtype;
+  r comandas;
+begin
+  -- los borrados en cascada (al eliminar un cliente) no se validan
+  if pg_trigger_depth() > 1 then return case when tg_op = 'DELETE' then old else new end; end if;
+  if rol is null then raise exception 'Tenés que iniciar sesión'; end if;
+  if rol = 'cadete' then
+    if tg_op <> 'UPDATE' or new.fecha <> hoy_ar() or old.estado = 'cancelada' or new.estado not in ('pendiente', 'entregada')
+       or (new.cliente_id, new.fecha, new.turno, new.menu_id, new.guarnicion_id, new.cantidad, new.precio, new.nota, new.forma_pago)
+          is distinct from (old.cliente_id, old.fecha, old.turno, old.menu_id, old.guarnicion_id, old.cantidad, old.precio, old.nota, old.forma_pago)
+       or cadete_del_dia(new.cliente_id, new.fecha) is distinct from mi_cadete() then
+      raise exception 'Tu usuario no puede modificar comandas';
+    end if;
+    if new.estado = 'entregada' and old.estado <> 'entregada' then new.entregada_at := now(); new.entregada_por := auth.uid();
+    elsif new.estado <> 'entregada' then new.entregada_at := null; new.entregada_por := null; end if;
+    return new;
+  end if;
+  foreach r in array (case when tg_op = 'INSERT' then array[new] when tg_op = 'DELETE' then array[old] else array[old, new] end) loop
+    select * into c from clientes where id = r.cliente_id;
+    if not found or c.user_id <> mi_negocio() then raise exception 'Cliente inexistente'; end if;
+    if rol = 'ayudante' and r.fecha < hoy_ar() then raise exception 'Solo se pueden cargar comandas de hoy en adelante'; end if;
+  end loop;
+  -- un pedido entregado no se modifica: primero hay que volverlo a pendiente
+  if tg_op = 'DELETE' and old.estado = 'entregada' then
+    raise exception 'Ese pedido ya se entregó: volvelo a pendiente antes de borrarlo';
+  end if;
+  if tg_op = 'UPDATE' and old.estado = 'entregada'
+     and (new.estado = 'entregada' or (new.cliente_id, new.fecha, new.turno, new.menu_id, new.guarnicion_id, new.cantidad)
+                                        is distinct from (old.cliente_id, old.fecha, old.turno, old.menu_id, old.guarnicion_id, old.cantidad)) then
+    raise exception 'Ese pedido ya se entregó: volvelo a pendiente antes de cambiarlo';
+  end if;
+  if tg_op = 'DELETE' then return old; end if;
+
+  new.user_id := c.user_id;
+  if new.menu_id is not null and not exists (select 1 from menus m where m.id = new.menu_id and m.user_id = c.user_id) then
+    raise exception 'Menú inexistente';
+  end if;
+  if new.guarnicion_id is not null and not exists (select 1 from productos p where p.id = new.guarnicion_id and p.user_id = c.user_id) then
+    raise exception 'Guarnición inexistente';
+  end if;
+  if tg_op = 'INSERT' then
+    new.registrado_por := auth.uid();
+    if new.precio is null then new.precio := (select m.precio from menus m where m.id = new.menu_id); end if;
+  end if;
+  if new.estado = 'entregada' and (tg_op = 'INSERT' or old.estado <> 'entregada') then
+    new.entregada_at := now(); new.entregada_por := auth.uid();
+  elsif new.estado <> 'entregada' then
+    new.entregada_at := null; new.entregada_por := null;
+  end if;
+  return new;
+end $$;
+
+/* ---------- lo que usa la página del cadete (sin usuario: con el link) ---------- */
+-- un link vigente: hoy entre sus fechas y sin anular
+create or replace function link_vigente(p_token text) returns cadete_links
+language plpgsql stable security definer set search_path = public as $$
+declare l cadete_links;
+begin
+  select * into l from cadete_links where token = p_token;
+  if not found or l.revocado or hoy_ar() not between l.desde and l.hasta then raise exception 'link_vencido'; end if;
+  return l;
+end $$;
+revoke execute on function link_vigente(text) from public, anon, authenticated;
+
+-- todo lo que necesita para armar su recorrido de hoy: sus clientes, sus entregas y pedidos, el orden
+create or replace function ruta_link(p_token text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  l cadete_links := link_vigente(p_token);
+  hoy date := hoy_ar();
+  ids uuid[];
+begin
+  select coalesce(array_agg(c.id), '{}') into ids from clientes c where c.user_id = l.user_id and cadete_del_dia(c.id, hoy) = l.cadete_id;
+  return jsonb_build_object(
+    'fecha', hoy, 'hasta', l.hasta,
+    'negocio', (select jsonb_build_object('nombre', n.nombre, 'cocina_direccion', n.cocina_direccion, 'cocina_lat', n.cocina_lat, 'cocina_lng', n.cocina_lng)
+                from negocio_config n where n.user_id = l.user_id),
+    'cadete', (select jsonb_build_object('id', k.id, 'nombre', k.nombre, 'telefono', k.telefono, 'color', k.color) from cadetes k where k.id = l.cadete_id),
+    'clientes', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'nombre', c.nombre, 'tipo', c.tipo, 'telefono', c.telefono, 'notas', c.notas,
+        'activo', c.activo, 'direccion', c.direccion, 'referencia', c.referencia, 'lat', c.lat, 'lng', c.lng, 'dias', c.dias,
+        'cant_almuerzo', c.cant_almuerzo, 'cant_cena', c.cant_cena, 'cadete_id', c.cadete_id, 'menu_almuerzo_id', c.menu_almuerzo_id,
+        'created_at', c.created_at)) from clientes c where c.id = any(ids)), '[]'::jsonb),
+    'entregas', coalesce((select jsonb_agg(to_jsonb(e)) from entregas e where e.cliente_id = any(ids) and e.fecha = hoy), '[]'::jsonb),
+    'comandas', coalesce((select jsonb_agg(to_jsonb(x)) from comandas x where x.cliente_id = any(ids) and x.fecha = hoy), '[]'::jsonb),
+    'rutas', coalesce((select jsonb_agg(jsonb_build_object('cliente_id', r.cliente_id, 'fecha', r.fecha, 'cadete_id', r.cadete_id, 'orden', r.orden))
+                       from rutas r where r.cliente_id = any(ids) and r.fecha = hoy), '[]'::jsonb),
+    'menus', coalesce((select jsonb_agg(jsonb_build_object('id', m.id, 'nombre', m.nombre, 'lleva_guarnicion', m.lleva_guarnicion, 'activo', m.activo,
+        'precio', m.precio, 'categoria', m.categoria)) from menus m where m.user_id = l.user_id), '[]'::jsonb),
+    'guarniciones', coalesce((select jsonb_agg(jsonb_build_object('id', p.id, 'nombre', p.nombre)) from productos p where p.user_id = l.user_id and p.es_guarnicion), '[]'::jsonb),
+    'cerrado', exists (select 1 from dias_cerrados d where d.user_id = l.user_id and d.fecha = hoy)
+  );
+end $$;
+grant execute on function ruta_link(text) to anon, authenticated;
+
+-- marcar una parada: las viandas de sus turnos y su pedido. p_estado: entregado | no_recibido | pendiente (deshacer)
+create or replace function marcar_link(p_token text, p_cliente uuid, p_turnos text[], p_estado text, p_pedido boolean) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  l cadete_links := link_vigente(p_token);
+  hoy date := hoy_ar();
+  t text;
+  v text := case p_estado when 'pendiente' then null else p_estado end;
+begin
+  if p_estado not in ('entregado', 'no_recibido', 'pendiente') then raise exception 'Estado inválido'; end if;
+  -- desde acá, la base lo trata como al cadete: las mismas reglas que con su usuario
+  perform set_config('app.link_negocio', l.user_id::text, true);
+  perform set_config('app.link_cadete', l.cadete_id::text, true);
+  if cadete_del_dia(p_cliente, hoy) is distinct from l.cadete_id then raise exception 'Este cliente no está en tu ruta de hoy'; end if;
+  foreach t in array coalesce(p_turnos, '{}') loop
+    if t = 'almuerzo' then
+      insert into entregas (user_id, cliente_id, fecha, almuerzo) values (l.user_id, p_cliente, hoy, v)
+        on conflict (cliente_id, fecha) do update set almuerzo = excluded.almuerzo;
+    elsif t = 'cena' then
+      insert into entregas (user_id, cliente_id, fecha, cena) values (l.user_id, p_cliente, hoy, v)
+        on conflict (cliente_id, fecha) do update set cena = excluded.cena;
+    end if;
+  end loop;
+  if p_pedido and p_estado = 'entregado' then
+    update comandas set estado = 'entregada' where cliente_id = p_cliente and fecha = hoy and estado = 'pendiente';
+  elsif p_pedido and p_estado = 'pendiente' then
+    update comandas set estado = 'pendiente' where cliente_id = p_cliente and fecha = hoy and estado = 'entregada';
+  end if;
+  return ruta_link(p_token);
+end $$;
+grant execute on function marcar_link(text, uuid, text[], text, boolean) to anon, authenticated;
+
+-- dónde está el cadete (una vez cada 10 segundos como mucho)
+create or replace function posicion_link(p_token text, p_lat double precision, p_lng double precision, p_precision double precision default null) returns void
+language plpgsql security definer set search_path = public as $$
+declare l cadete_links := link_vigente(p_token);
+begin
+  if p_lat is null or p_lng is null or abs(p_lat) > 90 or abs(p_lng) > 180 then return; end if;
+  if exists (select 1 from cadete_posiciones x where x.cadete_id = l.cadete_id and x.at > now() - interval '10 seconds') then return; end if;
+  insert into cadete_posiciones (user_id, cadete_id, fecha, lat, lng, precision) values (l.user_id, l.cadete_id, hoy_ar(), p_lat, p_lng, p_precision);
+end $$;
+grant execute on function posicion_link(text, double precision, double precision, double precision) to anon, authenticated;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 20 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v21 — cómo reparte cada cadete: en vehículo o caminando
+--   Cambia el recorrido por las calles (caminando no hay calles de una mano),
+--   el tiempo, el orden optimizado y cómo lo guía Google Maps.
+-- ============================================================
+
+begin;
+
+alter table cadetes add column if not exists medio text not null default 'vehiculo';
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'cadetes_medio_check') then
+    alter table cadetes add constraint cadetes_medio_check check (medio in ('vehiculo', 'pie'));
+  end if;
+end $$;
+
+-- la página del cadete también lo necesita
+create or replace function ruta_link(p_token text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  l cadete_links := link_vigente(p_token);
+  hoy date := hoy_ar();
+  ids uuid[];
+begin
+  select coalesce(array_agg(c.id), '{}') into ids from clientes c where c.user_id = l.user_id and cadete_del_dia(c.id, hoy) = l.cadete_id;
+  return jsonb_build_object(
+    'fecha', hoy, 'hasta', l.hasta,
+    'negocio', (select jsonb_build_object('nombre', n.nombre, 'cocina_direccion', n.cocina_direccion, 'cocina_lat', n.cocina_lat, 'cocina_lng', n.cocina_lng)
+                from negocio_config n where n.user_id = l.user_id),
+    'cadete', (select jsonb_build_object('id', k.id, 'nombre', k.nombre, 'telefono', k.telefono, 'color', k.color, 'medio', k.medio) from cadetes k where k.id = l.cadete_id),
+    'clientes', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'nombre', c.nombre, 'tipo', c.tipo, 'telefono', c.telefono, 'notas', c.notas,
+        'activo', c.activo, 'direccion', c.direccion, 'referencia', c.referencia, 'lat', c.lat, 'lng', c.lng, 'dias', c.dias,
+        'cant_almuerzo', c.cant_almuerzo, 'cant_cena', c.cant_cena, 'cadete_id', c.cadete_id, 'menu_almuerzo_id', c.menu_almuerzo_id,
+        'created_at', c.created_at)) from clientes c where c.id = any(ids)), '[]'::jsonb),
+    'entregas', coalesce((select jsonb_agg(to_jsonb(e)) from entregas e where e.cliente_id = any(ids) and e.fecha = hoy), '[]'::jsonb),
+    'comandas', coalesce((select jsonb_agg(to_jsonb(x)) from comandas x where x.cliente_id = any(ids) and x.fecha = hoy), '[]'::jsonb),
+    'rutas', coalesce((select jsonb_agg(jsonb_build_object('cliente_id', r.cliente_id, 'fecha', r.fecha, 'cadete_id', r.cadete_id, 'orden', r.orden))
+                       from rutas r where r.cliente_id = any(ids) and r.fecha = hoy), '[]'::jsonb),
+    'menus', coalesce((select jsonb_agg(jsonb_build_object('id', m.id, 'nombre', m.nombre, 'lleva_guarnicion', m.lleva_guarnicion, 'activo', m.activo,
+        'precio', m.precio, 'categoria', m.categoria)) from menus m where m.user_id = l.user_id), '[]'::jsonb),
+    'guarniciones', coalesce((select jsonb_agg(jsonb_build_object('id', p.id, 'nombre', p.nombre)) from productos p where p.user_id = l.user_id and p.es_guarnicion), '[]'::jsonb),
+    'cerrado', exists (select 1 from dias_cerrados d where d.user_id = l.user_id and d.fecha = hoy)
+  );
+end $$;
+grant execute on function ruta_link(text) to anon, authenticated;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 21 $$;
 grant execute on function version_base() to authenticated;
 
 notify pgrst, 'reload schema';

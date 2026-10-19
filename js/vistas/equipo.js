@@ -54,6 +54,11 @@ function abrirCadete(id){
       <div class="field"><label for="f-cad-tel">Teléfono (para mandarle la ruta por WhatsApp)</label><input type="tel" id="f-cad-tel" value="${esc(d.telefono)}"></div>
       <div class="field"><span class="flabel" id="lbl-color">Color en el mapa</span><div class="days" role="radiogroup" aria-labelledby="lbl-color">
         ${COLORES_CADETE.map(c => `<label><input type="radio" name="f-cad-color" value="${c}" ${c === d.color ? 'checked' : ''} aria-label="Color ${c}"><span style="background:${c};border-color:${c};${c === d.color ? 'box-shadow:0 0 0 2px var(--panel),0 0 0 4px ' + c : ''}"></span></label>`).join('')}</div></div>
+      ${state.versionBase >= 21 ? `<div class="field"><span class="flabel" id="lbl-medio">Cómo reparte</span>
+        <div class="seg" role="radiogroup" aria-labelledby="lbl-medio" id="f-cad-medio">
+          ${Object.entries(MEDIOS).map(([m, l]) => `<button type="button" data-m="${m}" aria-pressed="${(d.medio || 'vehiculo') === m}">${icon(m === 'pie' ? 'pie' : 'moto', 13)} ${l}</button>`).join('')}</div>
+        <input type="hidden" id="f-cad-medio-v" value="${d.medio || 'vehiculo'}">
+        <div class="help">Cambia el recorrido por las calles (caminando no hay calles de una mano), el tiempo y cómo lo guía Google Maps.</div></div>` : ''}
       <label class="check"><input type="checkbox" id="f-cad-activo" ${d.activo ? 'checked' : ''}> Activo (entra en el reparto de rutas)</label>
       ${k ? `<div class="psec"><button class="btn lg danger" id="borrar-cadete">${icon('borrar', 14)} Eliminar cadete</button>
         <p class="muted" style="font-size:13px">Sus clientes quedan sin cadete asignado.</p></div>` : ''}`,
@@ -63,13 +68,18 @@ function abrirCadete(id){
         el.querySelectorAll('[name="f-cad-color"]').forEach(x => { x.nextElementSibling.style.boxShadow = x.checked ? `0 0 0 2px var(--panel),0 0 0 4px ${x.value}` : ''; });
       }));
       el.querySelector('#cancelar-cad').addEventListener('click', () => cerrarPanel());
+      el.querySelectorAll('#f-cad-medio [data-m]').forEach(b => b.addEventListener('click', () => {
+        el.querySelector('#f-cad-medio-v').value = b.dataset.m;
+        el.querySelectorAll('#f-cad-medio [data-m]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      }));
       formulario(el, { botones: el.querySelector('#guardar-cadete'), cambios: !!k });
       el.querySelector('#guardar-cadete').addEventListener('click', async () => {
         const nombre = el.querySelector('#f-cad-nombre').value.trim();
         if(!nombre){ marcarFalta(el.querySelector('#f-cad-nombre'), 'Poné el nombre del cadete.'); return; }
         try{
           const g = await guardarCadete(k ? k.id : null, { nombre, telefono: el.querySelector('#f-cad-tel').value.trim(),
-            color: (el.querySelector('[name="f-cad-color"]:checked') || {}).value || COLORES_CADETE[0], activo: el.querySelector('#f-cad-activo').checked });
+            color: (el.querySelector('[name="f-cad-color"]:checked') || {}).value || COLORES_CADETE[0], activo: el.querySelector('#f-cad-activo').checked,
+            medio: el.querySelector('#f-cad-medio-v') ? el.querySelector('#f-cad-medio-v').value : undefined });
           toast(k ? 'Cadete actualizado.' : 'Cadete creado.'); cerrarPanel(); refrescar();
         }catch(e){ toastError('No se pudo guardar', e); }
       });
