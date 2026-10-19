@@ -1,11 +1,12 @@
 /* ============================================================
-   PESTAÑA: STOCK — productos terminados, menús armados con esos
-   productos, y producción diaria. Un pedido descuenta los productos de
+   PESTAÑA: STOCK — productos terminados y producción diaria (los menús
+   armados con esos productos están en su propia pestaña, Menú, más abajo
+   en este archivo). Un pedido descuenta los productos de
    sus menús al cargarse, y una vianda de pack los de su tipo de vianda al
    entregarse (más lo que se usa en toda vianda, como envases). Con las
    viandas de los próximos días se calcula qué falta y hasta cuándo alcanza.
 ============================================================= */
-let stockVista = 'productos';     // productos | menus | produccion
+let stockVista = 'productos';     // productos | produccion
 const UNIDADES = ['unidades', 'porciones', 'kg', 'cajones', 'bandejas', 'paquetes', 'docenas', 'litros'];
 
 let stockFecha = todayStr();
@@ -18,28 +19,19 @@ function coberturaTxt(p){
 }
 
 function renderStock(bar, main){
+  if(stockVista !== 'produccion') stockVista = 'productos';
   bar.innerHTML = `<h1>Stock</h1>
     <div class="seg" role="group" aria-label="Vista">
       <button data-v="productos" aria-pressed="${stockVista === 'productos'}">Productos</button>
-      <button data-v="menus" aria-pressed="${stockVista === 'menus'}">Menús</button>
       <button data-v="produccion" aria-pressed="${stockVista === 'produccion'}">Producción diaria</button>
     </div><div class="sp"></div>
-    ${esDueno() && stockVista !== 'produccion' && menusSinProductos().length ? `<button class="btn" id="menus-a-stock">${icon('caja', 14)} Pasar menús al stock</button>` : ''}
     ${esDueno() && stockVista === 'productos' ? `<button class="btn" id="nuevo-producto">${icon('plus', 14)} Nuevo producto</button>
       <button class="btn primary" id="cargar-stock">${icon('caja', 14)} Cargar stock</button>` : ''}
-    ${stockVista === 'menus' && puedeElegirCartaDia(todayStr()) ? `<button class="btn" id="elegir-menu-dia">${icon('menu', 14)} Menú del día</button>` : ''}
-    ${esDueno() && stockVista === 'menus' ? `<button class="btn" id="pegar-carta">${icon('copiar', 14)} Pegar carta</button>
-      <button class="btn primary" id="nuevo-menu">${icon('plus', 14)} Nuevo menú</button>` : ''}
     ${!esDueno() ? '<span class="muted">Solo lectura</span>' : ''}`;
   bar.querySelectorAll('[data-v]').forEach(b => b.addEventListener('click', () => { stockVista = b.dataset.v; render(); }));
   const np = bar.querySelector('#nuevo-producto'); if(np) np.addEventListener('click', () => abrirProducto(null));
-  const mas = bar.querySelector('#menus-a-stock'); if(mas) mas.addEventListener('click', () => abrirMenusAStock());
   const cs = bar.querySelector('#cargar-stock'); if(cs) cs.addEventListener('click', () => abrirCargaStock());
-  const nm = bar.querySelector('#nuevo-menu'); if(nm) nm.addEventListener('click', () => abrirMenu(null));
-  const md = bar.querySelector('#elegir-menu-dia'); if(md) md.addEventListener('click', () => abrirCartaDia(todayStr()));
-  const pc = bar.querySelector('#pegar-carta'); if(pc) pc.addEventListener('click', () => abrirPegarCarta());
   if(stockVista === 'produccion') return renderProduccion(main);
-  if(stockVista === 'menus') return renderMenus(main);
 
   const hoy = todayStr();
   const dias = Array.from({ length: 7 }, (_, i) => sumarDias(hoy, i));
@@ -148,7 +140,7 @@ function abrirProducto(id, seguido = null){
           <div class="help">Aparece en rojo en Stock y en Hoy. Con 0 no avisa.</div></div>
       </div>
       <div class="psec"><h3>¿Se descuenta solo?</h3>
-        <p class="help" style="margin:0 0 10px">Lo que lleva cada comida (milanesas, puré…) se descuenta por los menús: armalos en <b>Stock → Menús</b>.</p>
+        <p class="help" style="margin:0 0 10px">Lo que lleva cada comida (milanesas, puré…) se descuenta por los menús: armalos en la pestaña <b>Menú</b>.</p>
         <label class="check"><input type="checkbox" id="f-prod-envase" ${d.porVianda > 0 ? 'checked' : ''}> Se usa en cada vianda que se entrega</label>
         <div class="help" style="margin:4px 0 10px 24px">Para envases, cubiertos, servilletas o bolsas. Ej: si hoy se entregan 12 viandas, se descuentan 12.</div>
         <div class="field ${d.porVianda > 0 ? '' : 'hidden'}" id="grupo-porvianda" style="margin-left:24px"><label for="f-prod-porvianda">¿Cuántos por vianda?</label>
@@ -301,7 +293,8 @@ function renderMenus(main){
       <span><b>Para armar:</b> tenés las piezas de ${paraArmar.map(m => `<b>${esc(m.nombre)}</b> (${porcionesDisponibles(m)})`).join(', ')}, pero todavía hay que armarlos.</span></div>` : ''}
     <p class="hello-sub" style="margin-top:0">La carta: cada menú con su precio y los productos del stock que lleva. Al cargar un pedido se descuentan solos, y la guarnición que se elija también.
       ${esDueno() ? ' Para cargar la carta de WhatsApp de una vez, usá <b>Pegar carta</b>.' : ''}</p>
-    ${state.menus.length ? cats.map(cat => { const ms = state.menus.filter(m => (m.categoria || 'Sin categoría') === cat);
+    ${state.menus.length ? cats.map(cat => { const ms = state.menus.filter(m => (m.categoria || 'Sin categoría') === cat)
+        .sort((a, b) => (b.activo - a.activo) || ordenMenus(a, b));   // los desactivados, al final de su categoría
       return `<section class="tsec" style="margin-top:18px"><h2>${esc(cat)} <span class="n">${ms.length}</span></h2><div class="clist">${ms.map(fila).join('')}</div></section>`; }).join('')
       : `<div class="clist" style="margin-top:18px"><div class="stub" style="margin:28px auto"><div class="ico">${icon('menu', 20)}</div><h2>Sin menús</h2>
           <p>Pegá la carta que mandás por WhatsApp y se cargan todos los menús con sus precios, o armalos de a uno.</p>
@@ -336,9 +329,9 @@ function filaComponenteHtml(it, i){
     <input type="number" class="inp" data-campo="cantidad" min="0" step="any" value="${it.cantidad}" aria-label="Cantidad">
     <button class="iconbtn" type="button" data-quitar-comp aria-label="Quitar" title="Quitar">${icon('x', 14)}</button></div>`;
 }
-function abrirMenu(id){
+function abrirMenu(id, { categoria = '', alGuardar = null } = {}){
   const m = id ? menuPorId(id) : null;
-  const d = m || { nombre: '', descripcion: '', activo: true, items: [{ productoId: '', cantidad: 1 }] };
+  const d = m || { nombre: '', descripcion: '', activo: true, categoria, items: [{ productoId: '', cantidad: 1 }] };
   const lectura = !esDueno();
   abrirPanel({
     ancho: 'medio',
@@ -381,6 +374,7 @@ function abrirMenu(id){
             precio: el.querySelector('#f-menu-precio').value, categoria: el.querySelector('#f-menu-cat').value, llevaGuarnicion: el.querySelector('#f-menu-guarnicion').checked });
           if(m) await recalcularPedidosPendientes().catch(() => {});
           toast(m ? 'Menú actualizado.' : `Menú <b>${esc(nombre)}</b> creado.`); cerrarPanel(); refrescar();
+          if(alGuardar) alGuardar(g);
         }catch(e){ toastError('No se pudo guardar el menú', e); b.disabled = false; }
       });
       const borrar = el.querySelector('#borrar-menu');
@@ -623,7 +617,7 @@ function abrirPegarCarta(texto, resultado){
           const partes = [r.menusNuevos && plural(r.menusNuevos, 'menú nuevo', 'menús nuevos'), r.menusActualizados && plural(r.menusActualizados, 'menú actualizado', 'menús actualizados'),
                           r.guarnicionesNuevas && plural(r.guarnicionesNuevas, 'guarnición', 'guarniciones'), r.productosNuevos && plural(r.productosNuevos, 'producto nuevo', 'productos nuevos')].filter(Boolean);
           toast(`Carta guardada: ${partes.join(', ')}.`);
-          stockVista = 'menus'; cerrarPanel(); render();
+          cerrarPanel(); irA('menus');
         }catch(e){ toastError('No se pudo guardar la carta', e); b.disabled = false; b.textContent = 'Guardar'; }
       });
     }
@@ -690,9 +684,10 @@ function abrirMenusAStock(){
           }
           await recalcularPedidosPendientes();   // los pedidos que ya estaban pasan a descontar su producto
           toast(`Listo: ${plural(hechos, 'menú quedó', 'menús quedaron')} en el stock. Cargá cuánto tenés con <b>Cargar stock</b>.`);
-          stockVista = 'productos'; cerrarPanel(); renderMenu(); render();
+          stockVista = 'productos'; cerrarPanel(); renderMenu(); irA('stock');
         }catch(e){ toastError(hechos ? `Se pasaron ${hechos} y después falló` : 'No se pudo crear', e); crear.disabled = false; contar(); refrescar(); }
       });
     }
   });
 }
+

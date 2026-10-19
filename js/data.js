@@ -29,7 +29,7 @@ const state = {
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 14;
+const VERSION_BASE_APP = 15;
 
 /* ---------- formas de pago (desde la v14) ----------
    Un pedido se paga en efectivo, por transferencia o con Mercado Pago, o va "a cuenta" (paga después:
@@ -189,7 +189,8 @@ async function cargarDatos(){
   state.config = {
     nombre: cfg.nombre || 'Mi Vianda', cocinaDireccion: cfg.cocina_direccion || '',
     cocinaLat: cfg.cocina_lat == null ? null : Number(cfg.cocina_lat), cocinaLng: cfg.cocina_lng == null ? null : Number(cfg.cocina_lng),
-    alertaViandas: cfg.alerta_viandas ?? 3
+    alertaViandas: cfg.alerta_viandas ?? 3,
+    carta: cfg.carta || null
   };
   state.clientes = clientes.map(mapCliente);
   state.cadetes = (cadetes.data || []).map(mapCadete);
@@ -973,9 +974,29 @@ async function guardarConfig(patch){
   if('cocinaLat' in patch) fila.cocina_lat = patch.cocinaLat;
   if('cocinaLng' in patch) fila.cocina_lng = patch.cocinaLng;
   if('alertaViandas' in patch) fila.alerta_viandas = patch.alertaViandas;
+  if('carta' in patch) fila.carta = patch.carta;
   const { error } = await sb.from('negocio_config').upsert(fila, { onConflict: 'user_id' });
   if(error) throw error;
   Object.assign(state.config, patch);
+}
+
+/* ---------- la carta (desde la v15) ----------
+   Lo que se arma en la pestaña Menú: { titulo, subtitulo, pie, secciones: [{ id, titulo, tipo, items }] }.
+   tipo 'platos' = menús con su precio (items: [{ menuId }]); 'guarniciones' = productos (items: [{ productoId }]). */
+const usaCarta = () => state.versionBase >= 15;
+const cartaVacia = () => ({ titulo: 'Nuestro menú', subtitulo: '', pie: '', secciones: [] });
+function cartaActual(){
+  const c = state.config.carta;
+  return c && Array.isArray(c.secciones) ? JSON.parse(JSON.stringify(c)) : cartaVacia();
+}
+async function guardarCarta(carta){ await guardarConfig({ carta }); }
+// la imagen de la carta va a un lugar público fijo: el link siempre muestra la última que se publicó
+const rutaImagenCarta = () => `${state.perfil.negocioId}/carta.png`;
+const linkCarta = () => `${SUPABASE_URL}/storage/v1/object/public/cartas/${rutaImagenCarta()}`;
+async function publicarImagenCarta(blob){
+  const { error } = await sb.storage.from('cartas').upload(rutaImagenCarta(), blob, { upsert: true, contentType: 'image/png', cacheControl: '60' });
+  if(error) throw error;
+  return linkCarta();
 }
 
 async function guardarProduccion(fecha, preparadas){

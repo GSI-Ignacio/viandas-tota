@@ -7,7 +7,7 @@
 -- vuelve a hacer y no se tocan los datos.
 --
 -- Cada actualización nueva se agrega al final de este archivo.
--- Adentro van, en orden, las versiones 5 a 14. Las anteriores (v2 a v4) ya están corridas;
+-- Adentro van, en orden, las versiones 5 a 15. Las anteriores (v2 a v4) ya están corridas;
 -- quedan en la carpeta migraciones/ como historial, junto con cada versión por separado.
 -- ============================================================
 
@@ -864,6 +864,42 @@ revoke execute on function cuentas_pedidos() from public, anon;
 grant execute on function cuentas_pedidos() to authenticated;
 
 create or replace function version_base() returns integer language sql immutable as $$ select 14 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v15 — la carta
+--   La carta que se arma en la pestaña Menú (secciones y platos) se guarda con
+--   la configuración del negocio. Su imagen se publica en un lugar público fijo
+--   (Supabase Storage, carpeta "cartas"): el link siempre muestra la última.
+-- ============================================================
+
+begin;
+
+alter table negocio_config add column if not exists carta jsonb;
+
+-- el lugar de la imagen (solo si el proyecto tiene Storage, como todo proyecto de Supabase)
+do $$ begin
+  if to_regclass('storage.buckets') is not null then
+    insert into storage.buckets (id, name, public) values ('cartas', 'cartas', true)
+      on conflict (id) do update set public = true;
+    execute 'drop policy if exists "cartas: ver" on storage.objects';
+    execute 'drop policy if exists "cartas: subir" on storage.objects';
+    execute 'drop policy if exists "cartas: cambiar" on storage.objects';
+    execute 'drop policy if exists "cartas: borrar" on storage.objects';
+    execute 'create policy "cartas: ver" on storage.objects for select using (bucket_id = ''cartas'')';
+    -- cada negocio sube solo a su carpeta (la del id del negocio); el dueño y el ayudante
+    execute 'create policy "cartas: subir" on storage.objects for insert to authenticated with check (bucket_id = ''cartas'' and (storage.foldername(name))[1] = mi_negocio()::text and mi_rol() in (''dueno'', ''ayudante''))';
+    execute 'create policy "cartas: cambiar" on storage.objects for update to authenticated using (bucket_id = ''cartas'' and (storage.foldername(name))[1] = mi_negocio()::text and mi_rol() in (''dueno'', ''ayudante''))';
+    execute 'create policy "cartas: borrar" on storage.objects for delete to authenticated using (bucket_id = ''cartas'' and (storage.foldername(name))[1] = mi_negocio()::text and mi_rol() in (''dueno'', ''ayudante''))';
+  end if;
+end $$;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 15 $$;
 grant execute on function version_base() to authenticated;
 
 notify pgrst, 'reload schema';

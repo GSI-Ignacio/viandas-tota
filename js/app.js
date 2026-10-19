@@ -22,6 +22,7 @@ const TABS = [
     badge: () => { const sin = clientesSinSaldo().length, n = sin + clientesPorVencer().length; return n ? { n, alert: sin > 0 } : null; } },
   { id: 'stock',    label: 'Stock',    icon: 'stock',    grupo: 'Gestión',   roles: ['dueno', 'ayudante'], render: renderStock,
     badge: () => { const n = productosBajos().length; return n ? { n, alert: true } : null; } },
+  { id: 'menus',    label: 'Menú',     icon: 'menu',     grupo: 'Gestión',   roles: ['dueno', 'ayudante'], render: renderMenuTab },
   { id: 'estadisticas', label: 'Estadísticas', icon: 'grafico', grupo: 'Gestión', roles: ['dueno'], render: renderEstadisticas },
   { id: 'registro', label: 'Registro', icon: 'registro', grupo: 'Control',   roles: ['dueno', 'ayudante'], render: renderRegistro },
   { id: 'equipo',   label: 'Equipo',   icon: 'equipo',   grupo: 'Control',   roles: ['dueno'], render: renderEquipo },
@@ -30,7 +31,7 @@ const TABS = [
 
 /* Pestañas que se muestran. Las demás siguen en el código, listas para volver
    a sumarlas acá. 'mi-ruta' es la única pantalla del cadete. */
-let PESTANAS_VISIBLES = ['hoy', 'comandas', 'clientes', 'stock', 'estadisticas', 'mi-ruta'];
+let PESTANAS_VISIBLES = ['hoy', 'comandas', 'clientes', 'stock', 'menus', 'estadisticas', 'mi-ruta'];
 
 let activeTab = null;
 const tabsVisibles = () => TABS.filter(t => (!t.roles || t.roles.includes(state.perfil.rol)) && (!PESTANAS_VISIBLES || PESTANAS_VISIBLES.includes(t.id)));

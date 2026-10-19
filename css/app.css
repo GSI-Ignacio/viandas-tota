@@ -1277,3 +1277,101 @@ body{background:radial-gradient(1000px 520px at 8% -10%,var(--glow),transparent 
 .pn-plato.del-dia b{color:var(--skip-ink)}
 .pn-plato.del-dia:hover{border-color:var(--skip)}
 .pn-plato.del-dia.en{border-color:var(--accent)}
+
+/* ---------- la carta (pestaña Menú) ----------
+   Colores fijos (no del tema): se ve igual en claro y en oscuro, y la imagen sale igual. */
+.carta-page{display:flex;justify-content:center}
+.carta-mesa{width:100%;max-width:780px;display:flex;flex-direction:column;gap:18px}
+.carta{background:#FFFBF3;color:#2B1D12;border-radius:20px;padding:46px 52px 38px;box-shadow:0 22px 60px -28px rgba(0,0,0,.6);font-family:"Inter",ui-sans-serif,sans-serif}
+.c-head{text-align:center;margin-bottom:28px}
+.c-negocio{font-size:13px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:#E0702A}
+.c-titulo{font-size:40px;font-weight:800;letter-spacing:-.02em;line-height:1.1;margin:8px 0 0;color:#2B1D12}
+.c-sub{font-size:15.5px;color:#7A6553;margin:10px 0 0}
+.c-sec{margin-top:28px}
+.c-sec-h{display:flex;align-items:baseline;gap:12px;padding-bottom:7px;margin-bottom:10px;border-bottom:2px solid #E0702A}
+.c-sec-t{font-size:18px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;margin:0;color:#2B1D12}
+.c-sec-precio{font-size:19px;font-weight:800;color:#E0702A;white-space:nowrap}
+.c-item{display:flex;align-items:baseline;gap:8px;padding:7px 0}
+.c-n{font-size:16.5px;font-weight:600;line-height:1.3}
+.c-n small{display:block;font-size:13px;font-weight:400;color:#7A6553;margin-top:2px}
+.c-gn{font-size:13px;font-weight:500;color:#7A6553}
+.c-dots{flex:1;min-width:24px;border-bottom:2px dotted #DCCAB4;transform:translateY(-5px)}
+.c-p{font-size:16.5px;font-weight:800;white-space:nowrap}
+.c-lista{list-style:none;margin:6px 0 0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 28px}
+.c-lista li{position:relative;display:flex;align-items:baseline;gap:6px;padding:3px 0 3px 16px}
+.c-lista li::before{content:"";position:absolute;left:0;top:.72em;width:7px;height:7px;border-radius:50%;background:#E0702A}
+.c-lista .c-n{font-size:16px;font-weight:500}
+.c-guarn{font-size:16px;line-height:1.8;margin:4px 0 0}
+.c-g{white-space:nowrap}
+.c-sep{color:#E0702A;margin:0 9px;font-weight:700}
+.c-pie{margin-top:32px;padding-top:16px;border-top:1px solid #E7D9C6;text-align:center;font-size:14.5px;line-height:1.6;color:#7A6553;white-space:pre-line}
+.c-vacia{display:flex;flex-direction:column;align-items:center;gap:8px;margin:34px 0 10px;padding:34px 24px;border:2px dashed #E3D2BC;border-radius:16px;text-align:center;color:#7A6553;font-size:15px;line-height:1.5}
+.c-vacia svg{color:#E0702A}
+.c-vacia b{color:#2B1D12;font-size:17px}
+.c-vacio-sec{font-size:14px;color:#A8957F;margin:6px 0 0}
+/* edición: los textos se escriben encima; los botones aparecen al pasar */
+.carta.edita [contenteditable]{outline:none;border-radius:6px;cursor:text;transition:background .12s}
+.carta.edita [contenteditable]:hover{background:rgba(224,112,42,.08)}
+.carta.edita [contenteditable]:focus{background:rgba(224,112,42,.12);box-shadow:0 0 0 2px rgba(224,112,42,.35)}
+.carta.edita [contenteditable]:empty::before{content:attr(data-ph);color:#B9A792;font-weight:400}
+.carta.edita .c-titulo:empty::before{font-weight:800}
+.carta.edita [data-editar]{cursor:pointer;border-radius:5px}
+.carta.edita [data-editar]:hover{background:rgba(224,112,42,.08);box-shadow:0 0 0 4px rgba(224,112,42,.08)}
+.c-acts{display:inline-flex;gap:1px;margin-left:6px;opacity:0;transition:opacity .12s;flex:none}
+.c-sec-h .c-acts{margin-left:auto}
+.c-sec-h:hover .c-acts,.c-item:hover .c-acts,.c-lista li:hover .c-acts{opacity:1}
+@media (hover:none){.c-acts{opacity:1}}
+.c-acts button,.c-gx{display:inline-grid;place-items:center;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:#9C8670;cursor:pointer}
+.c-acts button:hover{background:rgba(43,29,18,.07);color:#2B1D12}
+.c-acts button.rojo:hover,.c-gx:hover{background:#FCE1DC;color:#C0392B}
+.c-gx{width:20px;height:20px;vertical-align:-3px;margin-left:2px}
+.c-item.off,.c-lista li.off,.c-g.off{opacity:.5}
+.c-off{display:block;font-size:11.5px;font-weight:600;color:#C0392B}
+.c-add{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:10px;padding:9px 12px;border:1.5px dashed #E3D2BC;border-radius:11px;
+  background:transparent;color:#E0702A;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.c-add:hover{background:rgba(224,112,42,.06);border-color:#E0702A}
+.carta-agregar{padding:18px 20px;border-radius:16px;border:1px dashed var(--line-2);background:var(--panel)}
+.carta-agregar h3{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:15px}
+.carta-chips{display:flex;flex-wrap:wrap;gap:8px}
+.carta-agregar .help{margin:12px 0 0}
+.carta-estado{font-size:12.5px}
+/* elegir platos para la carta */
+.ca-lista{display:flex;flex-direction:column;max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:4px 10px}
+.check.ca-op{display:flex;align-items:center;gap:10px;padding:8px 2px;margin:0;border-bottom:1px solid var(--line)}
+.check.ca-op:last-child{border-bottom:0}
+.check.ca-op .t{flex:1;min-width:0;display:flex;flex-direction:column;color:var(--text)}
+.check.ca-op .t small{font-size:12px;color:var(--text-3)}
+.check.ca-op b{font-variant-numeric:tabular-nums}
+.check.ca-op[hidden]{display:none}
+/* compartir */
+.cc{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:22px;align-items:start}
+.cc-prev{border-radius:14px;overflow:hidden;background:var(--panel-2);border:1px solid var(--line);max-height:62vh;overflow:auto}
+.cc-prev img{display:block;width:100%;height:auto}
+.cc-lado .psec .btn.primary{width:100%;justify-content:center}
+.cc-fila{display:flex;gap:8px;margin-top:8px}
+.cc-fila .btn{flex:1;justify-content:center}
+.cc-link{display:flex;gap:8px;margin-bottom:8px}
+.cc-link .inp{flex:1;min-width:0;font-size:12.5px}
+.cc-estado{font-size:13px;margin:10px 0 0}
+.cc-estado .ok{color:var(--ok-ink)} .cc-estado .bad{color:var(--bad-ink)}
+.cc-estado svg{display:inline-block;vertical-align:-2px}
+@media (max-width:760px){.cc{grid-template-columns:minmax(0,1fr)}.carta{padding:30px 22px 26px}.c-titulo{font-size:30px}.c-lista{grid-template-columns:minmax(0,1fr)}}
+/* la versión para la imagen: fuera de la pantalla, más grande y sin botones */
+.carta-render{position:fixed;left:-20000px;top:0}
+.carta.para-imagen{width:1080px;border-radius:0;box-shadow:none;padding:84px 92px 70px}
+.carta.para-imagen .c-negocio{font-size:20px}
+.carta.para-imagen .c-titulo{font-size:64px}
+.carta.para-imagen .c-sub{font-size:24px}
+.carta.para-imagen .c-sec{margin-top:44px}
+.carta.para-imagen .c-sec-t{font-size:27px}
+.carta.para-imagen .c-sec-precio{font-size:28px}
+.carta.para-imagen .c-sec-h{border-bottom-width:3px;padding-bottom:10px;margin-bottom:14px}
+.carta.para-imagen .c-n,.carta.para-imagen .c-p{font-size:24px}
+.carta.para-imagen .c-lista .c-n{font-size:23px}
+.carta.para-imagen .c-n small,.carta.para-imagen .c-gn{font-size:18px}
+.carta.para-imagen .c-item{padding:10px 0}
+.carta.para-imagen .c-lista{gap:10px 40px}
+.carta.para-imagen .c-lista li{padding-left:24px}
+.carta.para-imagen .c-lista li::before{width:10px;height:10px}
+.carta.para-imagen .c-guarn{font-size:23px}
+.carta.para-imagen .c-pie{font-size:21px;margin-top:52px;padding-top:24px}

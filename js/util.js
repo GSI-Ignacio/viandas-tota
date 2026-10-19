@@ -392,6 +392,8 @@ function waNumero(tel){
   return '549' + d;
 }
 function waLink(tel, texto){ const n = waNumero(tel); return n ? `https://wa.me/${n}?text=${encodeURIComponent(texto)}` : ''; }
+// un mensaje para mandar a quien sea: WhatsApp pide elegir el chat
+const waTexto = (texto) => `https://wa.me/?text=${encodeURIComponent(texto)}`;
 function telLink(tel){ const d = telDigitos(tel); return d ? `tel:${d}` : ''; }
 function tieneUbicacion(o){ return o && o.lat != null && o.lng != null && !isNaN(o.lat) && !isNaN(o.lng); }
 function coordTxt(o){ return `${Number(o.lat).toFixed(6)},${Number(o.lng).toFixed(6)}`; }
