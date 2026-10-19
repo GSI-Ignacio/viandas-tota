@@ -146,7 +146,14 @@ function cadDibujarMapa(c){
     if(cadCapa) cadCapa.remove();
     cadCapa = window.L.layerGroup().addTo(cadMapa);
     window.L.marker([c.lat, c.lng], { icon: pinIcono('', cadK().color) }).addTo(cadCapa);
-    const pts = [[c.lat, c.lng]], capa = cadCapa;
+    const pts = [[c.lat, c.lng]], capa = cadCapa, co = cocina();
+    // sin su ubicación todavía, y antes de la primera entrega: el camino sale de la cocina
+    const desdeCocina = !cadPos && tieneUbicacion(co) && !paradasDe(cadK().id, cad.fecha).some(x => !paradaPendiente(x, cad.fecha));
+    if(desdeCocina){
+      window.L.marker([co.lat, co.lng], { icon: pinIcono('C', '#241F17', 'home') }).addTo(capa);
+      pts.push([co.lat, co.lng]);
+      rutaPorCalles([co, c], cadK().medio).then(r => { if(r && cadMapa && cadMapa.hasLayer(capa)) window.L.polyline(r.linea, { color: cadK().color, weight: 4, opacity: .8 }).addTo(capa); }, () => {});
+    }
     if(cadPos){
       window.L.circleMarker([cadPos.lat, cadPos.lng], { radius: 8, color: '#fff', weight: 3, fillColor: '#2F80ED', fillOpacity: 1 }).addTo(capa);
       pts.push([cadPos.lat, cadPos.lng]);

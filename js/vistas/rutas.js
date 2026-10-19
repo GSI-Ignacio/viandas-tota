@@ -87,10 +87,11 @@ function renderRutas(bar, main){
   const sinCocina = !tieneUbicacion(cocina());
   const sinUbic = delDia.filter(c => !tieneUbicacion(c));
   main.innerHTML = `
-    ${sinCocina ? `<div class="banner warn">${icon('alerta', 14)} Falta la dirección de la cocina: los recorridos se calculan sin punto de partida.${esDueno() ? ' <button class="btn quiet" id="r-ir-ajustes">Configurarla</button>' : ''}</div>` : ''}
+    ${sinCocina ? `<div class="banner warn rt-sincocina">${icon('alerta', 14)}<span><b>¿Desde dónde salen los cadetes?</b> Cargá la dirección de la cocina: los recorridos, los kilómetros y el orden arrancan desde ahí. Sin ella, cada recorrido arranca en el primer cliente.</span>
+      ${esDueno() ? `<button class="btn primary" id="r-ir-ajustes">${icon('pin', 13)} Cargar la cocina</button>` : ''}</div>` : ''}
     ${!state.cadetes.length ? `<div class="banner">${icon('info', 14)} Todavía no hay cadetes cargados. ${esDueno() ? '<button class="btn quiet" id="r-ir-equipo">Sumar cadetes</button>' : ''}</div>` : ''}
     <div class="routes"><div class="rlist" id="r-lista"></div><div class="rmap"><div class="map" id="r-mapa"></div></div></div>`;
-  const ia = main.querySelector('#r-ir-ajustes'); if(ia) ia.addEventListener('click', () => irA('ajustes'));
+  const ia = main.querySelector('#r-ir-ajustes'); if(ia) ia.addEventListener('click', () => abrirDireccionCocina(() => render()));
   const ie = main.querySelector('#r-ir-equipo'); if(ie) ie.addEventListener('click', () => irA('equipo'));
 
   let mapa = null, capa = null, encuadrado = false, focoNuevo = false;
@@ -103,13 +104,20 @@ function renderRutas(bar, main){
       mapa.on('popupopen', (e) => {
         const b = e.popup.getElement() && e.popup.getElement().querySelector('[data-dir-mapa]');
         if(b) b.addEventListener('click', () => { mapa.closePopup(); const c = state.clientes.find(x => x.id === b.dataset.dirMapa); if(c) abrirDireccionCliente(c, () => render()); });
+        const bc = e.popup.getElement() && e.popup.getElement().querySelector('[data-cocina-mapa]');
+        if(bc) bc.addEventListener('click', () => { mapa.closePopup(); abrirDireccionCocina(() => render()); });
       });
     }
     if(capa) capa.remove();
     const miCapa = capa = window.L.layerGroup().addTo(mapa);
     const todos = [];
     const co = cocina();
-    if(tieneUbicacion(co)){ window.L.marker([co.lat, co.lng], { icon: pinIcono('C', '#241F17', 'home'), zIndexOffset: 1000 }).addTo(capa).bindPopup('<b>Cocina</b>'); todos.push([co.lat, co.lng]); }
+    if(tieneUbicacion(co)){
+      window.L.marker([co.lat, co.lng], { icon: pinIcono('C', '#241F17', 'home'), zIndexOffset: 1000 }).addTo(capa)
+        .bindPopup(`<b>Cocina</b><br>Desde acá salen los cadetes${co.direccion ? `<br>${esc(co.direccion)}` : ''}
+          ${esDueno() ? `<br><button type="button" class="btn quiet mapa-dir" data-cocina-mapa>${icon('pin', 12)} Cambiar dirección</button>` : ''}`);
+      todos.push([co.lat, co.lng]);
+    }
     const enFoco = [];
     for(const kid of [...state.cadetes.map(k => k.id), null]){
       const ps = paradasBorrador(kid);
@@ -227,7 +235,7 @@ function renderRutas(bar, main){
             ${['vehiculo', 'pie'].map(m => `<button type="button" data-medio="${m}" data-k="${kid}" aria-pressed="${k.medio === m}" ${editable ? '' : 'disabled'}
               title="${MEDIOS[m]}: ${m === 'pie' ? 'el recorrido va por donde se camina, sin calles de una mano' : 'el recorrido respeta las manos de las calles'}">${icon(m === 'pie' ? 'pie' : 'moto', 13)}<span>${m === 'pie' ? 'A pie' : 'Vehículo'}</span></button>`).join('')}</span>` : ''}
         </div>
-        <ol class="rt-paradas">${ps.length ? ps.map((c, i) => parada(c, i, kid, ps.length)).join('')
+        <ol class="rt-paradas">${ps.length && tieneUbicacion(cocina()) ? `<li class="rt-salida">${icon('hoy', 13)}<span>Sale de la cocina${cocina().direccion ? ` · ${esc(cocina().direccion)}` : ''}</span></li>` : ''}${ps.length ? ps.map((c, i) => parada(c, i, kid, ps.length)).join('')
           : `<li class="rt-vacio">${editable ? 'Sin paradas: arrastrá una acá, o elegí a este cadete en una parada.' : 'Sin paradas.'}</li>`}</ol>
       </section>`;
     };

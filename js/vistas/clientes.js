@@ -290,6 +290,34 @@ function abrirDireccionCliente(c, alGuardar){
   });
 }
 
+/* Desde dónde salen los cadetes: la dirección de la cocina (la misma de Ajustes). Todos los recorridos, los
+   kilómetros y el orden arrancan desde ahí. */
+function abrirDireccionCocina(alGuardar){
+  const cfg = state.config, d = { direccion: cfg.cocinaDireccion, lat: cfg.cocinaLat, lng: cfg.cocinaLng };
+  abrirPanel({
+    titulo: `${icon('hoy', 14)} La cocina: desde dónde salen los cadetes`,
+    ancho: 'medio',
+    html: `<p class="psub" style="margin-top:0">Todos los recorridos arrancan acá: el camino en el mapa, los kilómetros y minutos, el orden de "Optimizar" y los links de Google Maps.</p>
+      ${ubicacionFormHtml('kq', d)}`,
+    pie: '<button class="btn lg" id="kq-cancelar">Cancelar</button><button class="btn lg primary" id="kq-guardar">Guardar la cocina</button>',
+    onMount: (el) => {
+      const ubic = bindUbicacion(el, 'kq', d);
+      const g = el.querySelector('#kq-guardar');
+      formulario(el, { botones: g, cambios: true, extra: () => [ubic.lat, ubic.lng], completo: () => tieneUbicacion(ubic) ? true : marcarFalta(el.querySelector('#kq-direccion'), 'Buscá la dirección (o marcá el punto en el mapa).') });
+      el.querySelector('#kq-cancelar').addEventListener('click', () => cerrarPanel());
+      g.addEventListener('click', async () => {
+        g.disabled = true;
+        try{
+          await guardarConfig({ cocinaDireccion: el.querySelector('#kq-direccion').value.trim(), cocinaLat: ubic.lat, cocinaLng: ubic.lng });
+          toast('Listo: los recorridos salen de la cocina.');
+          cerrarPanel();
+          if(alGuardar) alGuardar();
+        }catch(e){ toastError('No se pudo guardar la cocina', e); g.disabled = false; }
+      });
+    }
+  });
+}
+
 /* ---------- ficha del cliente ---------- */
 function abrirCliente(id){
   const c = id ? clientePorId(id) : null;
