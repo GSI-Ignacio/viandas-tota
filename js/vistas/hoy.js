@@ -195,6 +195,7 @@ function renderHoy(bar, main){
       <div class="hoy-col" id="hoy-entregas">${bloques || vacioViandas}</div>
       <div class="hoy-col">${bloquePedidos}</div>
       <aside class="hoy-col hoy-aside">
+        ${seccionAvisosWaHtml()}
         ${seccionCartaDiaHtml(hoy)}
         ${seccionRenovarHtml()}
 

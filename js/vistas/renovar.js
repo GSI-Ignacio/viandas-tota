@@ -31,6 +31,25 @@ function renovRowHtml(c){
   </div>`;
 }
 
+/* Avisos por WhatsApp de hoy: los packs que tienen aviso este día (según su perfil), con pocos créditos o
+   ninguno, y que todavía no se avisaron. Un toque abre WhatsApp con el mensaje listo y queda anotado. */
+function seccionAvisosWaHtml(){
+  if(!usaAvisosWa()) return '';
+  const cs = avisosWaDeHoy();
+  if(!cs.length) return '';
+  const fila = (c) => { const wa = waLink(c.telefono, mensajeRecordatorio(c));
+    return `<div class="ren-row" data-cli="${c.id}">
+      <div class="t" data-ren-abrir="${c.id}" role="button" tabindex="0" title="Abrir la ficha">
+        <div class="n">${esc(c.nombre)}</div>
+        <div class="s">${renovEstadoHtml(c)}<span class="ren-aviso">${esc(textoFrecuenciaAviso(c))}</span></div></div>
+      <div class="acts">${wa ? `<a class="btn primary" href="${wa}" target="_blank" rel="noopener" data-ren-avisar="${c.id}" title="Abre WhatsApp con el mensaje listo (queda anotado)">${icon('wa', 13)}<span class="lbl"> Mandar</span></a>`
+        : `<button class="btn" disabled title="No tiene teléfono: cargáselo en su ficha">${icon('wa', 13)}<span class="lbl"> Sin teléfono</span></button>`}</div>
+    </div>`; };
+  return `<section class="tsec" id="sec-avisos-wa">
+    <h2>${icon('wa', 14)} Avisos por WhatsApp <span class="n">${plural(cs.length, 'para mandar hoy', 'para mandar hoy')}</span></h2>
+    <div class="clist ren-lista avisos-wa">${cs.map(fila).join('')}</div></section>`;
+}
+
 /* Sección para el costado de Hoy: los más urgentes y un acceso a la bandeja completa. */
 function seccionRenovarHtml(){
   const { sin, vencen, pausados } = packsPorRenovar();

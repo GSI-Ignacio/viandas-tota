@@ -7,7 +7,7 @@
 -- vuelve a hacer y no se tocan los datos.
 --
 -- Cada actualización nueva se agrega al final de este archivo.
--- Adentro van, en orden, las versiones 5 a 18. Las anteriores (v2 a v4) ya están corridas;
+-- Adentro van, en orden, las versiones 5 a 19. Las anteriores (v2 a v4) ya están corridas;
 -- quedan en la carpeta migraciones/ como historial, junto con cada versión por separado.
 -- ============================================================
 
@@ -1067,6 +1067,33 @@ begin
 end $$;
 
 create or replace function version_base() returns integer language sql immutable as $$ select 18 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v19 — avisos por WhatsApp a los packs
+--   En el perfil de cada pack se elige cuándo se le avisa que se queda sin
+--   créditos: nunca, todos los días o un día de la semana (1 = lunes …
+--   7 = domingo). Ese día aparece en Hoy, en "Avisos por WhatsApp", para
+--   mandarle el mensaje con un toque (queda anotado, como hasta ahora).
+-- ============================================================
+
+begin;
+
+alter table clientes add column if not exists aviso_wa text not null default 'nunca';
+alter table clientes add column if not exists aviso_wa_dia smallint;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'clientes_aviso_wa_check') then
+    alter table clientes add constraint clientes_aviso_wa_check
+      check (aviso_wa in ('nunca', 'diario', 'semanal') and (aviso_wa_dia is null or aviso_wa_dia between 1 and 7));
+  end if;
+end $$;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 19 $$;
 grant execute on function version_base() to authenticated;
 
 notify pgrst, 'reload schema';

@@ -29,7 +29,7 @@ const state = {
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 18;
+const VERSION_BASE_APP = 19;
 
 /* ---------- formas de pago (desde la v14) ----------
    Un pedido se paga en efectivo, por transferencia o con Mercado Pago, o va "a cuenta" (paga después:
@@ -66,6 +66,7 @@ function mapCliente(r){
     cadeteId: r.cadete_id || null,
     menuAlmuerzoId: r.menu_almuerzo_id || null, menuCenaId: r.menu_cena_id || null,
     avisoSaldoAt: r.aviso_saldo_at || null,
+    avisoWa: r.aviso_wa || 'nunca', avisoWaDia: r.aviso_wa_dia == null ? null : Number(r.aviso_wa_dia),
     precioVianda: r.precio_vianda == null ? null : Number(r.precio_vianda)
   };
 }
@@ -76,7 +77,9 @@ function clientePayload(c){
     cant_almuerzo: c.cantAlmuerzo, cant_cena: c.cantCena, cadete_id: c.cadeteId || null,
     menu_almuerzo_id: c.menuAlmuerzoId || null, menu_cena_id: c.menuCenaId || null,
     consumo: c.cantCena > 0 ? 'almuerzo_cena' : 'almuerzo',      // compatibilidad con la versión anterior
-    ...(state.versionBase >= 10 ? { precio_vianda: c.precioVianda ?? null } : {})
+    ...(state.versionBase >= 10 ? { precio_vianda: c.precioVianda ?? null } : {}),
+    // cuándo se le avisa por WhatsApp (solo si vino en los datos: si no, no se toca)
+    ...(state.versionBase >= 19 && c.avisoWa !== undefined ? { aviso_wa: c.avisoWa, aviso_wa_dia: c.avisoWa === 'semanal' ? c.avisoWaDia : null } : {})
   };
 }
 function mapEntrega(r){
@@ -655,6 +658,21 @@ function textoAviso(c){
   const f = isoLocal(new Date(c.avisoSaldoAt)), n = nombreDia(f);
   return n === 'Hoy' ? 'Avisado hoy' : n === 'Ayer' ? 'Avisado ayer' : `Avisado el ${n.toLowerCase()}`;
 }
+/* ---------- avisos por WhatsApp (desde la v19) ----------
+   En el perfil de cada pack se elige cuándo se le avisa que se queda sin créditos: nunca, todos los
+   días o un día de la semana. Ese día, si le quedan pocos créditos (o ninguno) y todavía no se le
+   avisó, aparece en Hoy para mandarle el mensaje con un toque. */
+const usaAvisosWa = () => state.versionBase >= 19;
+function avisoWaToca(c, fecha = todayStr()){
+  if(!c || !c.activo || !usaCreditos(c) || c.avisoWa === 'nunca' || !c.avisoWa) return false;
+  if(c.avisoWa === 'semanal' && diaSemana(fecha) !== c.avisoWaDia) return false;
+  if(saldoDe(c.id) > state.config.alertaViandas) return false;   // todavía le quedan créditos
+  return !(c.avisoSaldoAt && isoLocal(new Date(c.avisoSaldoAt)) === fecha);   // ya se le avisó ese día
+}
+const avisosWaDeHoy = () => clientesActivos().filter(c => avisoWaToca(c)).sort((a, b) => saldoDe(a.id) - saldoDe(b.id) || a.nombre.localeCompare(b.nombre, 'es'));
+// "Todos los días", "Los lunes" o "Nunca"
+const textoFrecuenciaAviso = (c) => c.avisoWa === 'diario' ? 'Aviso todos los días'
+  : c.avisoWa === 'semanal' && c.avisoWaDia ? `Aviso los ${DIAS_LARGOS[c.avisoWaDia - 1].replace(/s$/, '')}s` : 'Sin aviso automático';
 /* Anota que se le avisó por WhatsApp (desde la v9 de la base). */
 async function marcarAvisoSaldo(c){
   if(state.versionBase < 9) return;

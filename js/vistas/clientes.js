@@ -351,6 +351,17 @@ function abrirCliente(id){
           <input type="text" id="f-empresa" value="${esc(d.empresaNombre)}" placeholder="Ej: Estudio Contable SRL"></div>
         <div class="field"><label for="f-notas">Notas</label><textarea id="f-notas" rows="2" placeholder="Sin sal, timbre 3B, dejar en portería…">${esc(d.notas)}</textarea></div>
       </div>
+      ${usaAvisosWa() ? `<div class="psec ${d.tipo === 'pack' ? '' : 'hidden'}" id="grupo-aviso-wa"><h3>Aviso por WhatsApp</h3>
+        <div class="frow">
+          <div class="field"><label for="f-aviso-wa">Cuándo se le avisa</label><select id="f-aviso-wa">
+            ${[['nunca', 'Nunca'], ['diario', 'Todos los días'], ['semanal', 'Una vez por semana']].map(([v, l]) => `<option value="${v}" ${(d.avisoWa || 'nunca') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+          <div class="field ${d.avisoWa === 'semanal' ? '' : 'hidden'}" id="grupo-aviso-dia"><label for="f-aviso-dia">Qué día</label><select id="f-aviso-dia">
+            ${DIAS_LARGOS.map((n, i) => `<option value="${i + 1}" ${(d.avisoWaDia || 1) === i + 1 ? 'selected' : ''}>${n[0].toUpperCase() + n.slice(1)}</option>`).join('')}</select></div>
+        </div>
+        <div class="help">Cuando le queden ${plural(state.config.alertaViandas, 'crédito')} o menos (o ninguno), ese día aparece en Hoy, en <b>Avisos por WhatsApp</b>,
+          para mandarle el mensaje con un toque. <span id="aviso-sin-tel" class="${d.telefono ? 'hidden' : ''}" style="color:var(--warn-ink)">Cargale el teléfono para poder avisarle.</span></div>
+        ${c ? `<div class="help">${c.avisoSaldoAt ? `Último aviso: ${esc(textoAviso(c).replace(/^Avisado /, ''))}.` : 'Todavía no se le avisó.'}</div>` : ''}
+      </div>` : ''}
       ${c ? `<div class="psec"><h3>Acciones</h3><div class="pacts" style="border:0;margin:0;padding:0">
         <button class="btn lg" type="button" data-action="toggle-activo" data-id="${c.id}">${icon(c.activo ? 'pausa' : 'play', 14)} ${c.activo ? 'Pausar entregas' : 'Reactivar'}</button></div></div>` : ''}
       </div>
@@ -382,10 +393,17 @@ function abrirCliente(id){
     onClose: () => { clienteAbierto = null; document.querySelectorAll('[data-id].opened').forEach(x => x.classList.remove('opened')); },
     onMount: (el) => {
       const tipoSel = el.querySelector('#f-tipo');
+      // aviso por WhatsApp: el día, si es una vez por semana; y si falta el teléfono, se avisa
+      const avisoSel = el.querySelector('#f-aviso-wa');
+      if(avisoSel){
+        avisoSel.addEventListener('change', () => el.querySelector('#grupo-aviso-dia').classList.toggle('hidden', avisoSel.value !== 'semanal'));
+        el.querySelector('#f-telefono').addEventListener('input', (e) => el.querySelector('#aviso-sin-tel').classList.toggle('hidden', !!e.target.value.trim()));
+      }
       tipoSel.addEventListener('change', () => {
         el.querySelector('#grupo-empresa').classList.toggle('hidden', tipoSel.value !== 'empresa');
         // el casual no tiene cantidad ni precio por defecto: pide suelto, con el precio de la carta
         el.querySelector('#grupo-defaults').classList.toggle('hidden', tipoSel.value === 'casual');
+        const gw = el.querySelector('#grupo-aviso-wa'); if(gw) gw.classList.toggle('hidden', tipoSel.value !== 'pack');
         // cliente nuevo: los días siguen al tipo, salvo que ya los hayan marcado a mano
         if(!c && !diasEl.dataset.editado){ const ds = diasAlAlta(tipoSel.value); el.querySelectorAll('[name="f-dias"]').forEach(x => { x.checked = ds.includes(Number(x.value)); }); }
         if(!c && !cantEl.dataset.editado) cantEl.value = menusAlAlta(tipoSel.value) || '';
@@ -428,7 +446,10 @@ function abrirCliente(id){
           cadeteId: el.querySelector('#f-cadete').value || null,
           menuAlmuerzoId: el.querySelector('#f-menu-almuerzo').value || null,
           menuCenaId: null,
-          precioVianda: tipoSel.value !== 'casual' && el.querySelector('#f-precio-vianda') && el.querySelector('#f-precio-vianda').value !== '' ? Number(el.querySelector('#f-precio-vianda').value) : null
+          precioVianda: tipoSel.value !== 'casual' && el.querySelector('#f-precio-vianda') && el.querySelector('#f-precio-vianda').value !== '' ? Number(el.querySelector('#f-precio-vianda').value) : null,
+          // el aviso por WhatsApp, solo para los packs (si no, no se toca)
+          ...(el.querySelector('#f-aviso-wa') && tipoSel.value === 'pack'
+            ? { avisoWa: el.querySelector('#f-aviso-wa').value, avisoWaDia: Number(el.querySelector('#f-aviso-dia').value) || null } : {})
         };
         const b = ev.currentTarget; b.disabled = true;
         try{
