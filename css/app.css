@@ -857,7 +857,7 @@ details.hechas2:not([open]) > summary{border-bottom:0}
 
 /* ---------- entrada escalonada: las tarjetas aparecen de a una ---------- */
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.view.enter .kpis > *,.view.enter .hoy-col > *,.view.enter .page > .tsec{animation:rise .45s var(--ease) both}
+.view.enter .cres,.view.enter .kpis > *,.view.enter .hoy-col > *,.view.enter .page > .tsec{animation:rise .45s var(--ease) both}
 .view.enter .kpis > :nth-child(2){animation-delay:.04s} .view.enter .kpis > :nth-child(3){animation-delay:.08s}
 .view.enter .hoy-col:nth-child(1) > *{animation-delay:.08s} .view.enter .hoy-col:nth-child(2) > *{animation-delay:.14s}
 .view.enter .hoy-aside > :nth-child(1){animation-delay:.12s} .view.enter .hoy-aside > :nth-child(2){animation-delay:.18s}
@@ -1426,3 +1426,39 @@ body{background:radial-gradient(1000px 520px at 8% -10%,var(--glow),transparent 
 .md-precios{display:grid;grid-template-columns:repeat(2,minmax(0,170px));gap:6px 14px;margin:0 0 14px;align-items:end}
 .md-precios .field{margin:0}
 .md-precios .md-ayuda{grid-column:1/-1;margin:0}
+
+/* Comandas: el resumen del día, en una barra */
+.cres{display:grid;grid-template-columns:auto auto minmax(0,1fr);border:1px solid var(--line);border-radius:var(--r-card);background:var(--panel-2);margin:0 0 18px;overflow:hidden}
+.cr-it,.cr-total{display:flex;flex-direction:column;justify-content:center;gap:7px;padding:14px 20px;min-width:0}
+.cr-it{min-width:150px}
+.cr-it + .cr-it,.cr-total{border-left:1px solid var(--line)}
+.cr-l{display:flex;align-items:center;gap:7px;font:600 11px/1.2 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--text-4);white-space:nowrap}
+.cr-l i{width:7px;height:7px;border-radius:50%;background:var(--text-4);flex:none}
+.cr-l small{font:400 11.5px/1 var(--font);letter-spacing:0;text-transform:none}
+.cr-v{display:flex;align-items:baseline;gap:8px}
+.cr-v b,.cr-tl b{font-size:26px;font-weight:600;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;color:var(--text)}
+.cr-v small{font-size:13px;color:var(--text-3);white-space:nowrap}
+.cr-it.ped .cr-l i{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.cr-it.ped .cr-v b{color:var(--accent-ink)}
+.cr-it.ok .cr-l i{background:var(--ok)}
+.cr-it.ok .cr-v b{color:var(--ok-ink)}
+.cr-tl{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.cr-barra{display:flex;gap:2px;height:6px;border-radius:999px;overflow:hidden}
+.cr-barra span{min-width:4px}
+.cr-formas{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12.5px;color:var(--text-3)}
+.cr-formas span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.cr-formas i{width:7px;height:7px;border-radius:50%;flex:none}
+.cr-formas b{font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.cr-barra .fp-efectivo,.cr-formas .fp-efectivo i{background:var(--ok)}
+.cr-barra .fp-transferencia,.cr-formas .fp-transferencia i{background:var(--pack)}
+.cr-barra .fp-mercadopago,.cr-formas .fp-mercadopago i{background:#00A6E0}
+.cr-barra .fp-cuenta{background:repeating-linear-gradient(135deg,var(--skip) 0 4px,color-mix(in srgb,var(--skip) 40%,transparent) 4px 8px)}
+.cr-formas .fp-cuenta i{background:var(--skip)}
+.cr-barra .fp-sin,.cr-formas .fp-sin i{background:var(--text-4)}
+@media (max-width:640px){
+  .cres{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cr-it{min-width:0;padding:12px 14px}
+  .cr-total{grid-column:1/-1;border-left:0;border-top:1px solid var(--line);padding:12px 14px}
+  .cr-v b,.cr-tl b{font-size:22px}
+}
+

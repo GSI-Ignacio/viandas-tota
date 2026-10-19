@@ -121,14 +121,7 @@ function renderComandas(bar, main){
   const totalDia = pedidosDelDia(f).filter(p => p.estado !== 'cancelada').reduce((s, p) => s + (p.total || 0), 0);
   main.innerHTML = `<div class="page">
     ${avisoDiaCerradoHtml(comandaFecha)}
-    <div class="kpis" style="margin-top:0">
-      <div class="kpi ${rp.pendientes ? 'ped' : ''}"><b>${rp.pendientes}</b><span>pedidos por entregar · ${plural(rp.viandasPendientes, 'plato')}</span></div>
-      <div class="kpi ok"><b>${rp.entregados}</b><span>entregados</span></div>
-      <div class="kpi"><b>${fmtPlata(totalDia) || '$ 0'}</b><span>total del día (sin cancelados)</span></div>
-    </div>
-    ${usaFormasPago() && totalDia ? (() => { const tf = totalesPorForma(f);
-      return `<div class="echips formas-dia">${[...FORMAS_PAGO.map(x => [x.id, x.label + (x.id === 'cuenta' ? ' (se cobra después)' : '')]), ['sin', 'Sin forma de pago']].filter(([k]) => tf[k])
-        .map(([k, l]) => `<span class="echip fp-${k}"><i></i><b>${fmtPlata(tf[k])}</b>${esc(l)}</span>`).join('')}</div>`; })() : ''}
+    ${resumenDiaHtml(f, rp, totalDia)}
     <div class="hoy-grid">
       <section class="tsec" id="c-lista" style="margin-top:0"></section>
       <aside class="hoy-aside">
@@ -170,6 +163,24 @@ function renderComandas(bar, main){
   bindCartaDia(main);
   bindAvisoDiaCerrado(main, refrescar);
   pintarLista();
+}
+
+/* El resumen del día, en una barra: lo que falta entregar, lo entregado y la plata del día, con lo que
+   va por cada forma de pago (lo "a cuenta" se cobra después: va rayado). */
+function resumenDiaHtml(f, rp, totalDia){
+  const tf = usaFormasPago() && totalDia ? totalesPorForma(f) : null;
+  const formas = tf ? [...FORMAS_PAGO.map(x => [x.id, x.id === 'cuenta' ? 'A cuenta' : x.label]), ['sin', 'Sin forma de pago']].filter(([k]) => tf[k] > 0) : [];
+  const hechos = rp.pendientes + rp.entregados;
+  return `<section class="cres" aria-label="Resumen del día">
+    <div class="cr-it ${rp.pendientes ? 'ped' : ''}"><span class="cr-l"><i></i>Por entregar</span>
+      <span class="cr-v"><b>${rp.pendientes}</b><small>${plural(rp.viandasPendientes, 'plato')}</small></span></div>
+    <div class="cr-it ${rp.entregados ? 'ok' : ''}"><span class="cr-l"><i></i>Entregados</span>
+      <span class="cr-v"><b>${rp.entregados}</b><small>${hechos ? `de ${hechos}` : ''}</small></span></div>
+    <div class="cr-total">
+      <div class="cr-tl"><span class="cr-l">Total del día <small>sin cancelados</small></span><b>${fmtPlata(totalDia) || '$ 0'}</b></div>
+      ${formas.length ? `<div class="cr-barra" role="img" aria-label="${esc(formas.map(([k, l]) => `${l}: ${fmtPlata(tf[k])}`).join(', '))}">${formas.map(([k]) => `<span class="fp-${k}" style="flex:${tf[k]}"></span>`).join('')}</div>
+        <div class="cr-formas">${formas.map(([k, l]) => `<span class="fp-${k}" ${k === 'cuenta' ? 'title="Se cobra después"' : ''}><i></i>${esc(l)} <b>${fmtPlata(tf[k])}</b></span>`).join('')}</div>` : ''}
+    </div></section>`;
 }
 
 /* Menús agrupados por categoría de la carta, con su precio. Si ese día tiene menú del día, esos platos van primero. */
