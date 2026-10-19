@@ -509,9 +509,10 @@ async function dialogoProductoRapido(){
    "•" y "$ precio", "+ guarnición", "(sin stock)", variedades separadas por coma y la línea de
    GUARNICIÓN. Devuelve { items: [{ nombre, categoria, precio, llevaGuarnicion, activo, descripcion }], guarniciones }. */
 function leerCarta(texto){
-  const limpiar = t => t.replace(/[​-‍⁠﻿]/g, '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{20E3}]/gu, '').replace(/\s+/g, ' ').trim();
+  // fuera: caracteres invisibles, emojis y las comillas invertidas del formato de WhatsApp ("$`7.500")
+  const limpiar = t => t.replace(/[​-‍⁠﻿]/g, '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{20E3}]/gu, '').replace(/`/g, '').replace(/\s+/g, ' ').trim();
   const precioDe = t => { const m = t.match(/\$\s*([\d.,]+)/); return m ? Number(m[1].replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')) : null; };
-  const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+  const cap = t => t ? t.replace(/^([^a-záéíóúñ]*)([a-záéíóúñ])/i, (_, a, b) => a + b.toUpperCase()) : t;   // la primera letra, aunque empiece con un número
   const prolijo = t => {
     let x = t.trim();
     if(x.length > 3 && x === x.toUpperCase()) x = x.toLowerCase();
@@ -539,13 +540,15 @@ function leerCarta(texto){
     }
     if(!vineta && precio == null){ categoria = prolijo(t.replace(/[:.]+$/, '')); continue; }
     const activo = !/sin stock/i.test(t);
-    let nombre = t.replace(/\(\s*sin stock\s*\)/gi, '').replace(/\bvalor\b/gi, '').replace(/\$\s*[\d.,]+/g, '').replace(/\s+/g, ' ').trim();
-    const lleva = /\+\s*guarnici[oó]n/i.test(nombre);
+    let nombre = t.replace(/\(\s*sin stock\s*\)/gi, '').replace(/\bvalor\b/gi, '').replace(/\$\s*[\d.,]+/g, '').replace(/\s+/g, ' ').trim()
+      .replace(/\s+por$/i, '');   // "2 menú del día por $ 10.000"
+    // "+ guarnición" se saca del nombre; "con guarnición" queda en el nombre (hay otro sin guarnición): los dos piden elegirla
+    const lleva = /\+\s*guarnici[oó]n/i.test(nombre) || /\bcon guarnici[oó]n$/i.test(nombre);
     nombre = nombre.replace(/\+\s*guarnici[oó]n/gi, '').replace(/[\s,:\-+]+$/, '').trim();
     const cat = vineta ? categoria : (categoria || 'Del día');
     const variedad = nombre.match(/^(.*?)[,\s]*variedad(?:es)?\s*:\s*(.+)$/i);
     if(variedad){
-      const base = prolijo(variedad[1].trim()).replace(/^Tartas individuales$/i, 'Tarta individual').replace(/^Tartas$/i, 'Tarta');
+      const base = prolijo(variedad[1].trim()).replace(/^Tartas individuales$/i, 'Tarta individual').replace(/^Tartas (mediana|grande|chica)s$/i, 'Tarta $1').replace(/^Tartas$/i, 'Tarta');
       variedad[2].split(',').map(v => v.trim()).filter(Boolean).forEach(v =>
         items.push({ nombre: `${base} de ${v.toLowerCase()}`, categoria: cat, precio, llevaGuarnicion: lleva, activo, descripcion: '' }));
       continue;

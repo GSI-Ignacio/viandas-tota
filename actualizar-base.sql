@@ -7,7 +7,7 @@
 -- vuelve a hacer y no se tocan los datos.
 --
 -- Cada actualización nueva se agrega al final de este archivo.
--- Adentro van, en orden, las versiones 5 a 13. Las anteriores (v2 a v4) ya están corridas;
+-- Adentro van, en orden, las versiones 5 a 14. Las anteriores (v2 a v4) ya están corridas;
 -- quedan en la carpeta migraciones/ como historial, junto con cada versión por separado.
 -- ============================================================
 
@@ -804,6 +804,66 @@ create policy "abrir" on dias_cerrados for delete using (
 grant select, insert, delete on dias_cerrados to authenticated;
 
 create or replace function version_base() returns integer language sql immutable as $$ select 13 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v14 — formas de pago
+--   Cada pedido y cada pago guarda cómo se pagó: efectivo, transferencia o
+--   Mercado Pago; un pedido también puede ir "a cuenta / paga después".
+--   La cuenta de pedidos suma solo lo que va a cuenta (y, como hasta ahora,
+--   los pedidos de sanatorios y empresas que no tienen forma de pago).
+-- ============================================================
+
+begin;
+
+alter table comandas add column if not exists forma_pago text;
+alter table pagos add column if not exists forma_pago text;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'comandas_forma_pago_check') then
+    alter table comandas add constraint comandas_forma_pago_check
+      check (forma_pago is null or forma_pago in ('efectivo', 'transferencia', 'mercadopago', 'cuenta'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'pagos_forma_pago_check') then
+    alter table pagos add constraint pagos_forma_pago_check
+      check (forma_pago is null or forma_pago in ('efectivo', 'transferencia', 'mercadopago'));
+  end if;
+end $$;
+
+create or replace function cuentas_pedidos()
+returns table (cliente_id uuid, platos bigint, entregado numeric, pagado numeric, saldo numeric, ultimo_pago date, platos_sin_pagar bigint)
+language sql stable security definer set search_path = public as $$
+  -- lo que va a cuenta: lo marcado "a cuenta / paga después", y los pedidos de sanatorios y empresas sin forma de pago
+  with ac as (select k.cliente_id, k.cantidad, k.precio, k.fecha, k.created_at
+              from comandas k join clientes c on c.id = k.cliente_id
+              where k.estado <> 'cancelada' and c.user_id = mi_negocio()
+                and (k.forma_pago = 'cuenta' or (k.forma_pago is null and c.tipo in ('sanatorio', 'empresa')))),
+       e as (select ac.cliente_id, sum(ac.cantidad) as platos, sum(ac.cantidad * coalesce(ac.precio, 0)) as total
+             from ac group by ac.cliente_id),
+       p as (select x.cliente_id, sum(coalesce(x.monto, 0)) as total, max(x.fecha) as ultimo
+             from pagos x where x.concepto = 'pedidos' group by x.cliente_id),
+       b as (select c.id, coalesce(e.platos, 0) as platos, coalesce(e.total, 0) as entregado, coalesce(p.total, 0) as pagado,
+                    coalesce(e.total, 0) - coalesce(p.total, 0) as saldo, p.ultimo
+             from clientes c left join e on e.cliente_id = c.id left join p on p.cliente_id = c.id
+             where c.user_id = mi_negocio() and auth.uid() is not null and mi_rol() in ('dueno', 'ayudante')
+               and (e.total is not null or p.total is not null))
+  -- platos sin pagar: los más recientes que todavía no cubre lo pagado
+  select b.id, b.platos, b.entregado, b.pagado, b.saldo, b.ultimo,
+         coalesce((select sum(x.cantidad) from (
+                     select ac.cantidad, ac.cantidad * coalesce(ac.precio, 0) as valor,
+                            sum(ac.cantidad * coalesce(ac.precio, 0)) over (order by ac.fecha desc, ac.created_at desc) as acum
+                     from ac where ac.cliente_id = b.id) x
+                   where x.acum - x.valor < greatest(b.saldo, 0)), 0)::bigint
+  from b
+$$;
+revoke execute on function cuentas_pedidos() from public, anon;
+grant execute on function cuentas_pedidos() to authenticated;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 14 $$;
 grant execute on function version_base() to authenticated;
 
 notify pgrst, 'reload schema';

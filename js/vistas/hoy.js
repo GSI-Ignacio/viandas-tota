@@ -201,7 +201,7 @@ function renderHoy(bar, main){
         ${seccionRenovarHtml()}
 
         ${deben.length ? `<section class="tsec" id="sec-cobrar">
-          <h2>${icon('pago', 14)} A cobrar a fin de semana <span class="n">sanatorios y empresas</span></h2>
+          <h2>${icon('pago', 14)} A cobrar <span class="n">pedidos a cuenta y viandas fijas</span></h2>
           <div class="clist debe">
             ${deben.map(c => {
               const k = cuentaPedidosDe(c), debePed = k && k.saldo > 0, debeV = saldoDe(c.id) < 0;

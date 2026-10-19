@@ -153,8 +153,10 @@ function dialogoPago(c, alTerminar, pago, { renovar = false } = {}){
       </div>
       <div class="frow">
         <div class="field"><label for="f-pago-fecha">Fecha</label><input type="date" id="f-pago-fecha" value="${corregir ? pago.fecha : todayStr()}"></div>
-        <div class="field"><label for="f-pago-nota">Nota (opcional)</label><input type="text" id="f-pago-nota" placeholder="Efectivo, transferencia…" value="${corregir ? esc(pago.nota || '') : renovar ? 'Renovación' : ''}"></div>
+        <div class="field"><label for="f-pago-nota">Nota (opcional)</label><input type="text" id="f-pago-nota" placeholder="Renovación, referencia…" value="${corregir ? esc(pago.nota || '') : renovar ? 'Renovación' : ''}"></div>
       </div>
+      ${usaFormasPago() ? `<div class="field"><span class="flabel">Cómo pagó</span>${formaPagoHtml('f-pago-forma', corregir ? (pago.forma_pago || null) : null, { conCuenta: false, compacto: true })}
+        <div class="help">Si cargás un monto, elegí cómo entró la plata: se suma al total por forma de pago.</div></div>` : ''}
       ${corregir ? '' : '<p class="muted" style="font-size:13px;margin:0">¿Te equivocaste en un pago? En la ficha, en "Créditos y pagos", tocá <b>Editar</b> en ese pago, o usá <b>Ajustar créditos</b>.</p>'}`,
     botones: corregir
       ? [{ id: 'borrar', label: 'Borrar pago', clase: 'danger', domId: 'borrar-pago' }, { id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Guardar cambios', clase: 'primary', domId: 'confirmar-pago' }]
@@ -165,6 +167,9 @@ function dialogoPago(c, alTerminar, pago, { renovar = false } = {}){
         if(boton === 'borrar') return true;
         const v = Math.trunc(Number(el.querySelector('#f-pago-viandas').value));
         if(!v) return marcarFalta(el.querySelector('#f-pago-viandas'), corregir ? 'Poné los créditos, o tocá Borrar pago.' : 'Poné cuántos créditos (viandas) pagó.');
+        // con plata de por medio, cómo entró
+        if(usaFormasPago() && Number(el.querySelector('#f-pago-monto').value) > 0 && !formaElegida(el, 'f-pago-forma'))
+          return marcarFalta(el.querySelector('[data-fpago="f-pago-forma"]'), 'Elegí cómo pagó.');
         return true;
       };
     }
@@ -175,7 +180,8 @@ function dialogoPago(c, alTerminar, pago, { renovar = false } = {}){
       viandas: Math.trunc(Number(el.querySelector('#f-pago-viandas').value)),
       monto: el.querySelector('#f-pago-monto').value,
       fecha: el.querySelector('#f-pago-fecha').value || todayStr(),
-      nota: el.querySelector('#f-pago-nota').value.trim()
+      nota: el.querySelector('#f-pago-nota').value.trim(),
+      formaPago: usaFormasPago() ? formaElegida(el, 'f-pago-forma') : undefined
     };
     try{
       if(r.boton === 'borrar'){
@@ -289,7 +295,17 @@ function abrirCliente(id){
         <div class="cred-pagos-h">Pagos cargados <span class="n" id="n-pagos"></span></div>
         <div id="c-pagos"><div class="skel" style="width:50%"></div></div>
       </div>` : c && modo === 'sin' ? `<div class="cred-box modo-sin">
-        <p class="cred-nota">${icon('info', 14)} Cliente casual: paga cada pedido y no usa créditos.</p>
+        ${deudaPedidos(c) > 0 ? `<div class="cred-top">
+            <div class="cred-big"><b class="debe">${fmtPlata(deudaPedidos(c))}</b><span>de pedidos a cuenta · paga después</span></div>
+            <div class="cred-mini">
+              <div><span>Platos sin pagar</span><b>${fmtNum((cuentaPedidosDe(c) || {}).platosSinPagar || 0)}</b></div>
+              <div><span>Último pago</span><b>${(cuentaPedidosDe(c) || {}).ultimoPago ? esc(formatFechaCorta(cuentaPedidosDe(c).ultimoPago)) : '—'}</b></div>
+            </div></div>
+          <div class="pacts cred-acts">
+            ${esDueno() ? `<button class="btn lg primary" type="button" id="btn-pago-pedidos">${icon('pago', 14)} Registrar pago</button>` : ''}
+            ${waLink(c.telefono, '') ? `<a class="btn lg" href="${waLink(c.telefono, '')}" target="_blank" rel="noopener" title="Escribirle por WhatsApp">${icon('wa', 14)}</a>` : ''}
+          </div>`
+        : `<p class="cred-nota">${icon('info', 14)} Cliente casual: paga cada pedido y no usa créditos.</p>`}
         <div class="cred-pagos-h">Pagos cargados <span class="n" id="n-pagos"></span></div>
         <div id="c-pagos"><div class="skel" style="width:50%"></div></div>
       </div>` : c ? `<div class="cred-box modo-${modo}">
@@ -299,11 +315,13 @@ function abrirCliente(id){
             <div><span>Pagó</span><b>${fmtNum(sal.pagado)}</b></div>
             <div><span>${modo === 'cuenta' ? 'Recibió' : 'Usó'}</span><b>${fmtNum(sal.consumido)}</b></div>
             ${modo === 'prepago' ? `<div><span>Le alcanza</span><b>${plural(diasQueCubre(c), 'día')}</b></div>` : ''}
+            ${deudaPedidos(c) > 0 ? `<div><span>Pedidos a cuenta</span><b class="debe">${fmtPlata(deudaPedidos(c))}</b></div>` : ''}
           </div>
         </div>
         <div class="pacts cred-acts">
           <button class="btn lg primary" type="button" id="btn-pago">${icon('plus', 14)} ${modo === 'cuenta' ? 'Registrar pago' : 'Cargar pago'}</button>
           <button class="btn lg" type="button" id="btn-ajustar">${icon('editar', 14)} ${modo === 'cuenta' ? 'Ajustar' : 'Ajustar créditos'}</button>
+          ${deudaPedidos(c) > 0 && esDueno() ? `<button class="btn lg" type="button" id="btn-pago-pedidos" title="Cobrar los pedidos que pidió a cuenta">${icon('pago', 14)} Cobrar pedidos</button>` : ''}
           ${waLink(c.telefono, '') ? `<a class="btn lg" href="${waLink(c.telefono, mensajeRecordatorio(c))}" target="_blank" rel="noopener" title="Avisar saldo por WhatsApp">${icon('wa', 14)} Avisar</a>` : ''}
           ${c.telefono ? `<a class="btn lg" href="${telLink(c.telefono)}" title="Llamar">${icon('tel', 14)}</a>` : ''}
         </div>
@@ -450,7 +468,7 @@ async function cargarHistorialCliente(el, c){
       const listo = () => { refrescar(); abrirCliente(c.id); };
       cp.innerHTML = pagos.length ? `<div class="pagos-lista">${pagos.map(p => `<div class="pago-row ${p.concepto === 'pedidos' ? 'plata' : ''}">
           ${p.concepto === 'pedidos' ? `<span class="v ok">${fmtPlata(p.monto)}</span>` : `<span class="v ${p.viandas < 0 ? 'bad' : 'ok'}">${p.viandas > 0 ? '+' : ''}${p.viandas}</span>`}
-          <div class="t"><div class="n">${esc(p.nota || 'Pago')}</div><div class="s">${formatFechaCorta(p.fecha)}${p.monto != null ? ` · <b>${fmtPlata(p.monto)}</b>` : ''}</div></div>
+          <div class="t"><div class="n">${esc(p.nota || 'Pago')}</div><div class="s">${formatFechaCorta(p.fecha)}${p.monto != null ? ` · <b>${fmtPlata(p.monto)}</b>` : ''}${p.forma_pago ? ` · ${esc(formaLabel(p.forma_pago))}` : ''}</div></div>
           ${corrige ? `<div class="acts">${p.concepto === 'pedidos' ? '' : `<button class="btn" type="button" data-pago-editar="${p.id}" title="Corregir este pago">${icon('editar', 13)} Editar</button>`}
             <button class="btn quiet danger" type="button" data-pago-borrar="${p.id}" title="Borrar este pago" aria-label="Borrar este pago">${icon('borrar', 13)}</button></div>` : ''}</div>`).join('')}</div>`
         : '<div class="muted" style="font-size:13px">Todavía no tiene pagos cargados.</div>';

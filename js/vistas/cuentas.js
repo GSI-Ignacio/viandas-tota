@@ -21,15 +21,21 @@ function dialogoPagoPedidos(c, alTerminar, montoSugerido){
         <div class="field"><label for="f-pp-monto">Monto${REQ}</label><input type="number" id="f-pp-monto" min="1" step="1" value="${sugerido || ''}" placeholder="$" autofocus></div>
         <div class="field"><label for="f-pp-fecha">Fecha</label><input type="date" id="f-pp-fecha" value="${todayStr()}"></div>
       </div>
-      <div class="field"><label for="f-pp-nota">Nota (opcional)</label><input type="text" id="f-pp-nota" value="Pago de la semana" placeholder="Transferencia, efectivo…"></div>`,
+      ${usaFormasPago() ? `<div class="field"><span class="flabel">Cómo pagó</span>${formaPagoHtml('f-pp-forma', null, { conCuenta: false, compacto: true })}</div>` : ''}
+      <div class="field"><label for="f-pp-nota">Nota (opcional)</label><input type="text" id="f-pp-nota" value="Pago de la semana" placeholder="Referencia, comprobante…"></div>`,
     botones: [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Registrar pago', clase: 'primary', domId: 'confirmar-pago-pedidos' }],
     onMount: (el) => {
-      el._validar = () => (Number(el.querySelector('#f-pp-monto').value) > 0) || marcarFalta(el.querySelector('#f-pp-monto'), 'Poné el monto que pagó.');
+      el._validar = () => {
+        if(!(Number(el.querySelector('#f-pp-monto').value) > 0)) return marcarFalta(el.querySelector('#f-pp-monto'), 'Poné el monto que pagó.');
+        if(usaFormasPago() && !formaElegida(el, 'f-pp-forma')) return marcarFalta(el.querySelector('[data-fpago="f-pp-forma"]'), 'Elegí cómo pagó.');
+        return true;
+      };
     }
   }).then(async (r) => {
     if(!r) return;
     try{
-      await registrarPagoPedidos(c, { monto: r.el.querySelector('#f-pp-monto').value, fecha: r.el.querySelector('#f-pp-fecha').value || todayStr(), nota: r.el.querySelector('#f-pp-nota').value.trim() });
+      await registrarPagoPedidos(c, { monto: r.el.querySelector('#f-pp-monto').value, fecha: r.el.querySelector('#f-pp-fecha').value || todayStr(), nota: r.el.querySelector('#f-pp-nota').value.trim(),
+        formaPago: usaFormasPago() ? formaElegida(r.el, 'f-pp-forma') : undefined });
       const k2 = cuentaPedidosDe(c);
       toast(`Pago registrado. <b>${esc(c.nombre)}</b> ${k2 && k2.saldo > 0 ? `todavía debe ${fmtPlata(k2.saldo)}` : 'quedó al día'}.`);
       renderMenu();

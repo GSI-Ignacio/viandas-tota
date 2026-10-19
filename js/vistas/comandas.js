@@ -48,7 +48,7 @@ function filaPedidoHtml(ped, fecha){
   if(ped.estado !== 'pendiente'){
     const ok = ped.estado === 'entregada';
     return filaHechaHtml({ estado: ok ? 'ok' : 'bad', nombre: c.nombre,
-      detalle: ped.lineas.map(l => `${l.cantidad}× ${esc(textoLinea(l))}`).join(' · ') + (ped.total != null ? ` · ${fmtPlata(ped.total)}` : ''),
+      detalle: ped.lineas.map(l => `${l.cantidad}× ${esc(textoLinea(l))}`).join(' · ') + (ped.total != null ? ` · ${fmtPlata(ped.total)}` : '') + (ok && usaFormasPago() ? ` · ${esc(formaLabel(formaDePedido(ped)))}` : ''),
       etiqueta: ok ? 'Entregado' : 'Cancelado',
       abrir: { fila: `data-row-pedido="${c.id}"`, attr: `data-abrir-pedido="${c.id}"`, title: 'Ver el pedido' },
       toggle: puedeEditarComandas(fecha) ? `<div class="ped-toggle deshacer ${ped.estado}" data-pedido="${c.id}">${botonDeshacer().replace('data-deshacer', `data-v="${ped.estado}"`)}</div>` : '' });
@@ -57,7 +57,7 @@ function filaPedidoHtml(ped, fecha){
     <div class="t" data-abrir-pedido="${c.id}" role="button" tabindex="0" title="Ver o cambiar el pedido">
       <div class="n">${esc(c.nombre)} ${ped.lineas.some(l => l.origen === 'whatsapp') ? '<span class="tag pine">WhatsApp</span>' : ''}</div>
       <div class="que">${ped.lineas.map(l => `<b>${l.cantidad}×</b> ${esc(textoLinea(l))}`).join(' · ')}</div>
-      <div class="s">${esc(dir || 'Sin dirección')}${ped.total != null ? ` · <b style="color:var(--text)">${fmtPlata(ped.total)}</b>` : ''}</div>
+      <div class="s">${esc(dir || 'Sin dirección')}${ped.total != null ? ` · <b style="color:var(--text)">${fmtPlata(ped.total)}</b>` : ''} ${usaFormasPago() ? formaTagHtml(formaDePedido(ped)) || '<span class="tag plain" title="Abrí el pedido para elegir cómo paga">sin forma de pago</span>' : ''}</div>
     </div>
     ${botonesPedidoHtml(ped, fecha)}
   </div>`;
@@ -126,6 +126,9 @@ function renderComandas(bar, main){
       <div class="kpi ok"><b>${rp.entregados}</b><span>entregados</span></div>
       <div class="kpi"><b>${fmtPlata(totalDia) || '$ 0'}</b><span>total del día (sin cancelados)</span></div>
     </div>
+    ${usaFormasPago() && totalDia ? (() => { const tf = totalesPorForma(f);
+      return `<div class="echips formas-dia">${[...FORMAS_PAGO.map(x => [x.id, x.label + (x.id === 'cuenta' ? ' (se cobra después)' : '')]), ['sin', 'Sin forma de pago']].filter(([k]) => tf[k])
+        .map(([k, l]) => `<span class="echip fp-${k}"><i></i><b>${fmtPlata(tf[k])}</b>${esc(l)}</span>`).join('')}</div>`; })() : ''}
     <div class="hoy-grid">
       <section class="tsec" id="c-lista" style="margin-top:0"></section>
       <aside class="hoy-aside">
@@ -221,6 +224,8 @@ function lineaComandaHtml(l, i, fecha, cli){
 
 /* ---------- editor de un pedido ---------- */
 function abrirComanda(c, fecha, turno = 'almuerzo'){
+  // un pedido nuevo se arma paso a paso (pedido-nuevo.js); acá se ve o se cambia uno que ya existe
+  if(!c || !pedidoDe(c.id, fecha)) return abrirPedidoNuevo({ cliente: c || null, fecha });
   const nueva = !c;
   const ped = c ? pedidoDe(c.id, fecha) : null;
   const entregado = !!(ped && ped.estado === 'entregada');
@@ -254,6 +259,7 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
         ${editable ? `<button class="btn" type="button" id="com-agregar" style="margin-top:8px">${icon('plus', 13)} Agregar plato</button>` : ''}
         ${!state.menus.length ? `<p class="muted" style="font-size:13px;margin-top:10px">Todavía no hay menús en la carta. ${esDueno() ? 'Cargalos en Stock → Menús (podés pegar la carta de WhatsApp).' : ''}</p>` : ''}
       </div>
+      ${usaFormasPago() ? `<div class="psec"><h3>Cómo paga</h3>${formaPagoHtml('f-com-forma', ped && formaDePedido(ped) !== 'sin' ? formaDePedido(ped) : null, { compacto: true })}</div>` : ''}
       <p class="muted" style="font-size:13px;margin-top:14px">Los pedidos no usan créditos. Los productos de cada plato y la guarnición se descuentan del stock apenas lo guardás; si lo cancelás o lo borrás, vuelven.</p>`,
     pie: editable ? `${ped ? `<button class="btn lg danger" id="borrar-comanda">${icon('borrar', 14)} Eliminar pedido</button><span class="sp"></span>` : ''}
       <button class="btn lg" id="cancelar-comanda">Cerrar</button><button class="btn lg primary" id="guardar-comanda">${ped ? 'Guardar pedido' : 'Crear pedido'}</button>` : '',
@@ -404,7 +410,7 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
             ls.push(...previo.lineas.map(x => ({ menuId: x.menuId, guarnicionId: x.guarnicionId, cantidad: x.cantidad, nota: x.nota })));
           }
           const negAntes = new Set(productosNegativos().map(p => p.id));
-          await guardarComanda(cli, fch, 'almuerzo', ls);
+          await guardarComanda(cli, fch, 'almuerzo', ls, usaFormasPago() ? { formaPago: formaElegida(el, 'f-com-forma') } : {});
           const negNuevos = productosNegativos().filter(p => !negAntes.has(p.id));
           toast(`Pedido de <b>${esc(cli.nombre)}</b> guardado: ${esc(textoMenus(cli, fch))}.`
             + (negNuevos.length ? `<br><span style="color:var(--bad-ink)">Quedó stock en negativo: ${textoNegativos(negNuevos)}.</span>` : ''), negNuevos.length ? 'err' : 'ok', negNuevos.length ? 9000 : null);

@@ -66,6 +66,9 @@ const ICON_PATHS = {
   plus: '<path d="M8 3v10M3 8h10"/>',
   menos: '<path d="M3 8h10"/>',
   calendario: '<rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/>',
+  billete: '<rect x="1.5" y="4" width="13" height="8" rx="1.5"/><circle cx="8" cy="8" r="2"/><path d="M4 6.5v3M12 6.5v3"/>',
+  transferir: '<path d="M2.5 5.5h10.5M10.5 3l2.5 2.5-2.5 2.5M13.5 10.5H3M5.5 8 3 10.5 5.5 13"/>',
+  qr: '<rect x="2.5" y="2.5" width="4" height="4" rx=".6"/><rect x="9.5" y="2.5" width="4" height="4" rx=".6"/><rect x="2.5" y="9.5" width="4" height="4" rx=".6"/><path d="M9.5 9.5h1.5v1.5M13.5 9.5v4h-4M11.5 12v1.5"/>',
   x: '<path d="m4 4 8 8M12 4l-8 8"/>',
   check: '<path d="m3.5 8.5 3 3 6-7"/>',
   chevL: '<path d="m10 3.5-4.5 4.5 4.5 4.5"/>',
@@ -227,6 +230,18 @@ function formulario(root, { botones, cambios = false, completo = null, extra = n
   foto(); revisar();
   return api;
 }
+
+/* ---------- forma de pago ----------
+   Cuatro botones grandes (radios por dentro, así un formulario nota el cambio). conCuenta: con "A cuenta"
+   (pedidos); sin él, para un pago de plata. sugerida: la que usó la última vez. */
+function formaPagoHtml(nombre, sel, { conCuenta = true, sugerida = null, compacto = false } = {}){
+  const formas = conCuenta ? FORMAS_PAGO : FORMAS_COBRO;
+  return `<div class="fpago ${compacto ? 'compacto' : ''}" role="radiogroup" aria-label="Forma de pago" data-fpago="${nombre}">${formas.map(f => `<label class="fp-op fp-${f.id}">
+      <input type="radio" name="${nombre}" value="${f.id}" ${sel === f.id ? 'checked' : ''}>
+      <span class="fp-in">${icon(f.icon, compacto ? 16 : 22)}<b>${f.label}</b>${f.sub ? `<small>${f.sub}</small>` : sugerida === f.id ? '<small>la última vez</small>' : ''}</span></label>`).join('')}</div>`;
+}
+const formaElegida = (root, nombre) => (root.querySelector(`input[name="${nombre}"]:checked`) || {}).value || null;
+const formaTagHtml = (forma) => forma && forma !== 'sin' ? `<span class="tag fp-tag fp-${forma}">${esc(formaLabel(forma))}</span>` : '';
 
 /* animación de carga (la misma del arranque) */
 const LOADER_HTML = '<div class="ld-orbit" role="img" aria-label="Cargando">' + ['o1', 'o2', 'o3'].map(o => `<i class="${o}">${'<b></b>'.repeat(5)}</i>`).join('') + '<s></s></div>';

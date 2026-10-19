@@ -29,7 +29,20 @@ const state = {
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 13;
+const VERSION_BASE_APP = 14;
+
+/* ---------- formas de pago (desde la v14) ----------
+   Un pedido se paga en efectivo, por transferencia o con Mercado Pago, o va "a cuenta" (paga después:
+   suma a lo que debe). Los pagos de packs y de cuentas guardan cómo entró la plata (sin "a cuenta"). */
+const FORMAS_PAGO = [
+  { id: 'efectivo', label: 'Efectivo', icon: 'billete' },
+  { id: 'transferencia', label: 'Transferencia', icon: 'transferir' },
+  { id: 'mercadopago', label: 'Mercado Pago', icon: 'qr' },
+  { id: 'cuenta', label: 'A cuenta', sub: 'paga después', icon: 'reloj' }
+];
+const FORMAS_COBRO = FORMAS_PAGO.filter(f => f.id !== 'cuenta');
+const formaLabel = (id) => (FORMAS_PAGO.find(f => f.id === id) || {}).label || 'Sin registrar';
+const usaFormasPago = () => state.versionBase >= 14;
 
 /* ---------- roles ---------- */
 const esDueno = () => state.perfil.rol === 'dueno';
@@ -78,7 +91,7 @@ function mapProducto(r){
 function mapComanda(r){
   return { id: r.id, clienteId: r.cliente_id, fecha: r.fecha, turno: r.turno, menuId: r.menu_id || null, guarnicionId: r.guarnicion_id || null,
            cantidad: Number(r.cantidad) || 0, nota: r.nota || '', origen: r.origen || 'manual',
-           estado: r.estado || 'pendiente', precio: r.precio == null ? null : Number(r.precio) };
+           estado: r.estado || 'pendiente', precio: r.precio == null ? null : Number(r.precio), formaPago: r.forma_pago || null };
 }
 const clave = (clienteId, fecha) => clienteId + '|' + fecha;
 const claveT = (clienteId, fecha, turno) => clienteId + '|' + fecha + '|' + turno;
@@ -311,7 +324,20 @@ function pedidoDe(clienteId, fecha){
   const lineas = lineasComanda(clienteId, fecha, 'almuerzo').concat(lineasComanda(clienteId, fecha, 'cena'));
   if(!lineas.length) return null;
   const estado = lineas.every(l => l.estado === 'entregada') ? 'entregada' : lineas.every(l => l.estado === 'cancelada') ? 'cancelada' : 'pendiente';
-  return { clienteId, fecha, lineas, estado, viandas: lineas.reduce((s, l) => s + l.cantidad, 0), total: valorPedido(lineas) };
+  const forma = (lineas.find(l => l.formaPago) || {}).formaPago || null;
+  return { clienteId, fecha, lineas, estado, viandas: lineas.reduce((s, l) => s + l.cantidad, 0), total: valorPedido(lineas), formaPago: forma };
+}
+/* Cómo se paga un pedido: la forma elegida o, si no tiene (pedidos viejos), a cuenta para sanatorios y empresas. */
+function formaDePedido(ped){
+  if(ped.formaPago) return ped.formaPago;
+  const c = clientePorId(ped.clienteId);
+  return c && modoPago(c) === 'cuenta' ? 'cuenta' : 'sin';
+}
+/* La plata de los pedidos de un día por forma de pago (sin los cancelados). */
+function totalesPorForma(fecha){
+  const t = { efectivo: 0, transferencia: 0, mercadopago: 0, cuenta: 0, sin: 0 };
+  for(const p of pedidosDelDia(fecha)) if(p.estado !== 'cancelada') t[formaDePedido(p)] += p.total || 0;
+  return t;
 }
 function pedidosDelDia(fecha){ return state.clientes.map(c => pedidoDe(c.id, fecha)).filter(Boolean); }
 function valorPedido(lineas){
@@ -442,7 +468,7 @@ const usaCreditos = (c) => modoPago(c) === 'prepago';
 /* 'ok' | 'warn' | 'bad' para los prepagos; 'debe' (amarillo) para la cuenta que debe; 'na' si no usa créditos */
 function estadoSaldo(c){
   const s = saldoDe(c.id), modo = modoPago(c);
-  if(modo === 'sin') return 'na';
+  if(modo === 'sin') return deudaPedidos(c) > 0 ? 'debe' : 'na';   // un casual que pidió a cuenta
   if(modo === 'cuenta') return s < 0 || deudaPedidos(c) > 0 ? 'debe' : 'ok';
   if(s <= 0) return 'bad';
   if(s <= state.config.alertaViandas) return 'warn';
@@ -475,7 +501,7 @@ function diasQueCubre(c){
 }
 function textoSaldo(c){
   const s = saldoDe(c.id), modo = modoPago(c);
-  if(modo === 'sin') return 'no usa créditos';
+  if(modo === 'sin') return deudaPedidos(c) > 0 ? `debe ${fmtPlata(deudaPedidos(c))}` : 'no usa créditos';
   if(modo === 'cuenta'){
     // lo que debe de pedidos (en plata) y de viandas fijas, todo junto
     const plata = deudaPedidos(c), partes = [];
@@ -529,11 +555,13 @@ async function recargarCuentasPedidos(){
 const cuentaPedidosDe = (c) => (state.cuentasPedidos || {})[c.id] || null;
 const deudaPedidos = (c) => Math.max((cuentaPedidosDe(c) || {}).saldo || 0, 0);
 // clientes a cuenta que deben plata de pedidos entregados
-const clientesDebenPedidos = () => state.clientes.filter(c => modoPago(c) === 'cuenta' && (cuentaPedidosDe(c) || {}).saldo > 0)
+// clientes que deben plata de pedidos a cuenta (sanatorios y empresas, o un casual que paga después)
+const clientesDebenPedidos = () => state.clientes.filter(c => (cuentaPedidosDe(c) || {}).saldo > 0)
   .sort((a, b) => cuentaPedidosDe(b).saldo - cuentaPedidosDe(a).saldo);
 /* Pago en plata de los pedidos (no toca los créditos). */
-async function registrarPagoPedidos(c, { monto, fecha, nota }){
-  const { error } = await sb.from('pagos').insert({ cliente_id: c.id, viandas: 0, monto: Number(monto), nota: nota || 'Pago de pedidos', fecha: fecha || todayStr(), concepto: 'pedidos' });
+async function registrarPagoPedidos(c, { monto, fecha, nota, formaPago }){
+  const { error } = await sb.from('pagos').insert({ cliente_id: c.id, viandas: 0, monto: Number(monto), nota: nota || 'Pago de pedidos', fecha: fecha || todayStr(), concepto: 'pedidos',
+    ...(usaFormasPago() ? { forma_pago: formaPago || null } : {}) });
   if(error) throw error;
   await recargarCuentasPedidos();
 }
@@ -728,8 +756,10 @@ async function guardarEntrega(c, fecha, e, payload){
 
 /* Guarda la comanda de un cliente para un día y turno: lineas = [{ menuId, guarnicionId, cantidad, nota }].
    Sin líneas = ese día no recibe ese turno. */
-async function guardarComanda(c, fecha, turno, lineas){
+async function guardarComanda(c, fecha, turno, lineas, { formaPago } = {}){
   const actuales = lineasComanda(c.id, fecha, turno);
+  // la forma de pago va en todas las líneas del pedido (undefined = no se toca)
+  const conForma = formaPago !== undefined && usaFormasPago();
   const clv = (l) => (l.menuId || '') + '|' + (l.guarnicionId || '');
   const nuevas = new Map();
   for(const l of lineas){
@@ -743,15 +773,16 @@ async function guardarComanda(c, fecha, turno, lineas){
   for(const a of actuales){
     const n = nuevas.get(clv(a));
     if(!n){ const { error } = await sb.from('comandas').delete().eq('id', a.id); if(error) throw error; }
-    else if(n.cantidad !== a.cantidad || n.nota !== a.nota || (n.precio != null && n.precio !== a.precio)){
+    else if(n.cantidad !== a.cantidad || n.nota !== a.nota || (n.precio != null && n.precio !== a.precio) || (conForma && (a.formaPago || null) !== (formaPago || null))){
       const cambio = { cantidad: n.cantidad, nota: n.nota };
       if(n.precio != null) cambio.precio = n.precio;
+      if(conForma) cambio.forma_pago = formaPago || null;
       const { error } = await sb.from('comandas').update(cambio).eq('id', a.id); if(error) throw error;
     }
   }
   const aInsertar = [...nuevas.values()].filter(n => !actuales.some(a => clv(a) === clv(n)))
     .map(n => ({ cliente_id: c.id, fecha, turno, menu_id: n.menuId, guarnicion_id: n.guarnicionId, cantidad: n.cantidad, nota: n.nota, origen: 'manual',
-                 ...(n.precio != null ? { precio: n.precio } : {}) }));
+                 ...(n.precio != null ? { precio: n.precio } : {}), ...(conForma ? { forma_pago: formaPago || null } : {}) }));
   if(aInsertar.length){ const { error } = await sb.from('comandas').insert(aInsertar); if(error) throw error; }
   await recargarComandas(fecha, c.id);
   if(!esCadete()) await recargarProductos().catch(() => {});   // el pedido ya descontó su stock
@@ -807,7 +838,9 @@ async function cargarCarta({ items, guarniciones: nombresG }){
     else if(!ya.esGuarnicion) await guardarProducto(ya.id, { ...ya, esGuarnicion: true });
   }
   for(const it of items){
-    const ya = state.menus.find(m => normalizarNombre(m.nombre) === normalizarNombre(it.nombre));
+    // si hay varios con ese nombre (cargas viejas), se actualiza el de la misma categoría, o el activo
+    const mismos = state.menus.filter(m => normalizarNombre(m.nombre) === normalizarNombre(it.nombre));
+    const ya = mismos.find(m => (m.categoria || '') === (it.categoria || '')) || mismos.find(m => m.activo) || mismos[0];
     let productoId = it.productoId || null;
     if(it.crearProducto){
       const existe = state.productos.find(p => normalizarNombre(p.nombre) === normalizarNombre(it.crearProducto));
@@ -861,9 +894,10 @@ async function eliminarCliente(c){
   for(const k of Object.keys(state.entregas)) if(k.startsWith(c.id + '|')) delete state.entregas[k];
   delete state.saldos[c.id];
 }
-async function registrarPago(c, { viandas, monto, nota, fecha }){
+async function registrarPago(c, { viandas, monto, nota, fecha, formaPago }){
   const { data, error } = await sb.from('pagos').insert({
-    cliente_id: c.id, viandas, monto: monto === '' || monto == null ? null : Number(monto), nota: nota || '', fecha: fecha || todayStr()
+    cliente_id: c.id, viandas, monto: monto === '' || monto == null ? null : Number(monto), nota: nota || '', fecha: fecha || todayStr(),
+    ...(usaFormasPago() ? { forma_pago: formaPago || null } : {})
   }).select().single();
   if(error) throw error;
   const s = state.saldos[c.id] || (state.saldos[c.id] = { pagado: 0, consumido: 0, saldo: 0 });
@@ -872,9 +906,10 @@ async function registrarPago(c, { viandas, monto, nota, fecha }){
   return data;
 }
 /* Corrige un pago ya cargado (créditos, monto, fecha o nota) o lo borra; los créditos del cliente se recalculan. */
-async function editarPago(p, { viandas, monto, nota, fecha }){
+async function editarPago(p, { viandas, monto, nota, fecha, formaPago }){
   const { data, error } = await sb.from('pagos').update({
-    viandas, monto: monto === '' || monto == null ? null : Number(monto), nota: nota || '', fecha: fecha || p.fecha
+    viandas, monto: monto === '' || monto == null ? null : Number(monto), nota: nota || '', fecha: fecha || p.fecha,
+    ...(usaFormasPago() && formaPago !== undefined ? { forma_pago: formaPago || null } : {})
   }).eq('id', p.id).select();
   if(error) throw error;
   if(!data || !data.length) throw new Error('Solo el dueño puede corregir pagos');

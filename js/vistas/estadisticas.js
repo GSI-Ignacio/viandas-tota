@@ -33,6 +33,9 @@ function calcularEst(d, desde, hasta){
   const porCliente = {}, porMenu = {}, porTipo = {}, porProd = {};
   const cli = (id) => porCliente[id] || (porCliente[id] = { viandas: 0, plata: 0 });
   let packs = 0, saltadas = 0, noRecibidas = 0, platos = 0, ventas = 0;
+  // lo que entró por forma de pago (pedidos pagados, packs y pagos de cuentas) y lo vendido a cuenta, que se cobra después
+  const formas = { efectivo: 0, transferencia: 0, mercadopago: 0, sin: 0 }, deDonde = { pedidos: 0, packs: 0, cuentas: 0 };
+  let aCuenta = 0;
   const pedidos = new Set(), cancelados = new Set();
   for(const r of d.entregas){
     const n = consumoEntrega(mapEntrega(r));
@@ -50,6 +53,8 @@ function calcularEst(d, desde, hasta){
     const precio = r.precio != null ? Number(r.precio) : (m ? m.precio : null);
     const valor = precio != null ? precio * r.cantidad : 0;
     platos += r.cantidad; ventas += valor;
+    const dueno = clientePorId(r.cliente_id), fp = r.forma_pago || (dueno && modoPago(dueno) === 'cuenta' ? 'cuenta' : 'sin');
+    if(fp === 'cuenta') aCuenta += valor; else { formas[fp] += valor; deDonde.pedidos += valor; }
     if(porDia[r.fecha]) porDia[r.fecha].pedidos += r.cantidad;
     const c = cli(r.cliente_id); c.viandas += r.cantidad; c.plata += valor;
     const pm = porMenu[r.menu_id || '-'] || (porMenu[r.menu_id || '-'] = { cant: 0, plata: 0 });
@@ -64,9 +69,15 @@ function calcularEst(d, desde, hasta){
   for(const f of dias){ const w = diaSemana(f) - 1; sem[w].suma += porDia[f].packs + porDia[f].pedidos; sem[w].dias++; }
   const creditos = d.pagos.reduce((s, p) => s + Math.max(0, Number(p.viandas) || 0), 0);
   const cobrado = d.pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
+  for(const p of d.pagos){
+    const m = Number(p.monto) || 0; if(!m) continue;
+    formas[p.forma_pago || 'sin'] += m; deDonde[p.concepto === 'pedidos' ? 'cuentas' : 'packs'] += m;
+  }
+  const entro = Object.values(formas).reduce((s, v) => s + v, 0);
   const total = packs + platos;
   return { dias, porDia, porCliente, porMenu, porTipo, porProd, sem, total, packs, platos, ventas, creditos, cobrado,
-    ingresos: ventas + cobrado, pedidos: pedidos.size, cancelados: cancelados.size, saltadas, noRecibidas,
+    formas, deDonde, aCuenta,
+    ingresos: entro, pedidos: pedidos.size, cancelados: cancelados.size, saltadas, noRecibidas,
     activos: Object.values(porCliente).filter(v => v.viandas > 0).length, promedio: dias.length ? total / dias.length : 0 };
 }
 
@@ -157,6 +168,22 @@ function htmlEstadisticas(a, b, r){
         <b>${fmtNum(v)}</b><small>${Math.round(v / totTipos * 100)}%</small></div>`).join('')}</div>`
     : '<div class="est-vacio">Todavía no hay entregas en este período.</div>';
 
+  // formas de pago: lo que entró en el período, por cómo entró
+  const FP_COL = { efectivo: 'var(--ok)', transferencia: 'var(--pack)', mercadopago: '#00A6E0', sin: 'var(--text-4)' };
+  const fps = [...FORMAS_COBRO.map(f => [f.id, f.label]), ['sin', 'Sin registrar']].filter(([k]) => a.formas[k] > 0);
+  const totFp = fps.reduce((s, [k]) => s + a.formas[k], 0) || 1;
+  const bloqueFormas = `${fps.length ? `<div class="est-segbar">${fps.map(([k, l]) => `<i style="flex:${a.formas[k]};background:${FP_COL[k]}" title="${esc(l)}: ${fmtPlata(a.formas[k])}"></i>`).join('')}</div>
+      <div class="est-leyenda">${fps.map(([k, l]) => `<div><span class="lg"><i style="background:${FP_COL[k]}"></i>${esc(l)}</span>
+        <b>${fmtPlata(a.formas[k])}</b><small>${Math.round(a.formas[k] / totFp * 100)}%</small></div>`).join('')}</div>`
+    : '<div class="est-vacio">Todavía no entró plata registrada en este período.</div>'}
+    <div class="est-mini">
+      <div><span>De pedidos pagados</span><b>${fmtPlata(a.deDonde.pedidos) || '$ 0'}</b></div>
+      <div><span>De packs (créditos)</span><b>${fmtPlata(a.deDonde.packs) || '$ 0'}</b></div>
+      <div><span>De cuentas (lo que pagaron a cuenta)</span><b>${fmtPlata(a.deDonde.cuentas) || '$ 0'}</b></div>
+      <div><span>Vendido a cuenta (se cobra después)</span><b class="${a.aCuenta ? 'debe' : ''}">${fmtPlata(a.aCuenta) || '$ 0'}</b></div>
+    </div>
+    ${a.formas.sin ? '<p class="est-nota">"Sin registrar" son cobros cargados antes de que existieran las formas de pago, o sin elegirla.</p>' : ''}`;
+
   // créditos: lo que ya está pago y falta entregar (hoy, no depende del período)
   const porEntregar = clientesActivos().filter(usaCreditos).reduce((s, c) => s + Math.max(0, saldoDe(c.id)), 0);
   const aCobrar = clientesQueDeben().reduce((s, c) => s - saldoDe(c.id), 0);
@@ -167,7 +194,7 @@ function htmlEstadisticas(a, b, r){
     ${hayDatos ? '' : `<div class="banner" style="border:1px solid var(--line);border-radius:12px;margin-bottom:18px">${icon('info', 14)} Todavía no hay movimiento en este período. Los números se van a ir llenando con cada entrega, pedido y pago.</div>`}
     <div class="est-kpis">
       ${kpi('Viandas entregadas', fmtNum(a.total), deltaHtml(a.total, b.total), `${fmtNum(a.packs)} de packs · ${fmtNum(a.platos)} de pedidos`)}
-      ${kpi('Ingresos', fmtPlata(a.ingresos) || '$ 0', deltaHtml(a.ingresos, b.ingresos), `${fmtPlata(a.cobrado) || '$ 0'} en créditos · ${fmtPlata(a.ventas) || '$ 0'} en pedidos`)}
+      ${kpi('Ingresos', fmtPlata(a.ingresos) || '$ 0', deltaHtml(a.ingresos, b.ingresos), `lo que entró · ${fmtPlata(a.deDonde.packs) || '$ 0'} de packs · ${fmtPlata(a.deDonde.pedidos + a.deDonde.cuentas) || '$ 0'} de pedidos`)}
       ${kpi('Promedio por día', fmtUno(a.promedio), deltaHtml(a.promedio, b.promedio), `viandas por día en ${plural(a.dias.length, 'día')}`)}
       ${kpi('Clientes atendidos', fmtNum(a.activos), deltaHtml(a.activos, b.activos), `de ${plural(clientesActivos().length, 'cliente activo', 'clientes activos')}`)}
     </div>
@@ -189,6 +216,7 @@ function htmlEstadisticas(a, b, r){
       <section class="est-card"><h3>Mejores clientes <span class="n">viandas recibidas</span></h3>${lista(topClientes, 'Todavía no hay entregas en este período.')}</section>
       <section class="est-card"><h3>Días de más trabajo <span class="n">promedio por día</span></h3>${semana}
         ${prom[mejor] ? `<p class="est-nota">El día más cargado es el <b>${['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'][mejor]}</b>, con ${fmtUno(prom[mejor])} viandas en promedio.</p>` : ''}</section>
+      <section class="est-card"><h3>Formas de pago <span class="n">lo que entró en el período</span></h3>${bloqueFormas}</section>
       <section class="est-card"><h3>Tipos de cliente <span class="n">viandas por tipo</span></h3>${bloqueTipos}</section>
       <section class="est-card"><h3>Créditos <span class="n">al día de hoy</span></h3>
         <div class="est-big"><b>${fmtNum(porEntregar)}</b><span>viandas ya pagas por entregar</span></div>
@@ -196,7 +224,7 @@ function htmlEstadisticas(a, b, r){
           <div><span>Vendidos en el período</span><b>${fmtNum(a.creditos)}</b>${deltaHtml(a.creditos, b.creditos)}</div>
           <div><span>Clientes sin créditos</span><b class="${sinSaldo ? 'bad' : ''}">${sinSaldo}</b></div>
           <div><span>Por quedarse sin créditos</span><b class="${porVencer ? 'warn' : ''}">${porVencer}</b></div>
-          <div><span>A cobrar (sanatorios y empresas)</span><b class="${aCobrar || aCobrarPlata ? 'debe' : ''}">${[aCobrarPlata && fmtPlata(aCobrarPlata), aCobrar && plural(aCobrar, 'vianda')].filter(Boolean).join(' · ') || '$ 0'}</b></div>
+          <div><span>A cobrar (pedidos a cuenta y viandas fijas)</span><b class="${aCobrar || aCobrarPlata ? 'debe' : ''}">${[aCobrarPlata && fmtPlata(aCobrarPlata), aCobrar && plural(aCobrar, 'vianda')].filter(Boolean).join(' · ') || '$ 0'}</b></div>
         </div></section>
       <section class="est-card"><h3>Stock más usado <span class="n">en el período</span></h3>${lista(topProds, 'Todavía no salió stock en este período.')}</section>
     </div>
