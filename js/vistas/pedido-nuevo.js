@@ -137,16 +137,26 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
 
       const platoHtml = (m) => {
         const n = st.lineas.filter(l => l.menuId === m.id).reduce((s, l) => s + l.cantidad, 0), p = precioPara(st.cli, m.id), disp = textoDisponible(m);
-        return `<button class="pn-plato ${n ? 'en' : ''}" type="button" data-plato="${m.id}" title="Agregar ${esc(m.nombre)}">
+        return `<button class="pn-plato ${n ? 'en' : ''} ${esMenuDelDia(m) ? 'del-dia' : ''}" type="button" data-plato="${m.id}" title="Agregar ${esc(m.nombre)}">
           <b>${esc(m.nombre)}</b><span>${p != null ? fmtPlata(p) : 'sin precio'}${disp ? ` · ${esc(disp)}` : ''}</span>${n ? `<i class="pn-n">${n}</i>` : ''}</button>`;
       };
+      // sin TACC: su categoría, o "sin TACC" en el nombre (como el "Menú sin TACC" del día)
+      const sinTacc = (m) => normalizarNombre(m.categoria) === 'sin tacc' || /\bsin\s*tacc\b/i.test(m.nombre);
       const platosHtml = () => {
         const q = normalizarNombre(st.buscaPlato), delDia = menusDelDia(st.fecha).filter(menuDisponible);
         let ms = menusDisponibles();
         if(q) ms = ms.filter(m => normalizarNombre(m.nombre + ' ' + (m.categoria || '')).includes(q));
         else if(st.cat === '__dia') ms = delDia;
-        else if(st.cat) ms = ms.filter(m => (m.categoria || 'Otros') === st.cat);
-        return ms.length ? ms.map(platoHtml).join('') : `<div class="calm">${icon('buscar')} ${q ? `No hay platos con «${esc(st.buscaPlato)}».` : 'No hay platos disponibles en esta categoría.'}</div>`;
+        else if(normalizarNombre(st.cat) === 'sin tacc') ms = ms.filter(sinTacc);
+        else if(st.cat) ms = ms.filter(m => (m.categoria || 'Otros') === st.cat && !sinTacc(m));
+        // siempre en orden alfabético, sin importar el precio
+        ms = ms.slice().sort(ordenMenus);
+        if(!ms.length) return `<div class="calm">${icon('buscar')} ${q ? `No hay platos con «${esc(st.buscaPlato)}».` : 'No hay platos disponibles en esta categoría.'}</div>`;
+        // lo que tiene TACC y lo que no, separados
+        const con = ms.filter(m => !sinTacc(m)), sin = ms.filter(sinTacc);
+        if(!con.length || !sin.length) return ms.map(platoHtml).join('');
+        return `<div class="pn-grupo">Con TACC</div>${con.map(platoHtml).join('')}
+          <div class="pn-grupo sin-tacc">${icon('check', 12)} Sin TACC</div>${sin.map(platoHtml).join('')}`;
       };
       // cada plato del pedido, lo justo: nombre, cantidad y subtotal; el precio, la guarnición y la nota se abren al tocarlos
       const lineaHtml = (l) => {

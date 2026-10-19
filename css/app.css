@@ -1265,3 +1265,15 @@ body{background:radial-gradient(1000px 520px at 8% -10%,var(--glow),transparent 
 }
 
 .trow .s .hora{font-variant-numeric:tabular-nums;color:var(--text-2);font-weight:600}
+
+/* pedido nuevo: los platos con TACC y sin TACC, separados */
+.pn-grupo{grid-column:1 / -1;display:flex;align-items:center;gap:6px;margin:6px 2px -2px;font-size:12px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--text-3)}
+.pn-grupo:first-child{margin-top:0}
+.pn-grupo.sin-tacc{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);color:var(--ok-ink)}
+
+/* el "Menú del día", primero y de otro color */
+.pn-plato.del-dia{background:color-mix(in srgb,var(--skip) 16%,var(--ctl));border-color:color-mix(in srgb,var(--skip) 70%,transparent)}
+.pn-plato.del-dia b{color:var(--skip-ink)}
+.pn-plato.del-dia:hover{border-color:var(--skip)}
+.pn-plato.del-dia.en{border-color:var(--accent)}

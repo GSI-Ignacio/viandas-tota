@@ -107,6 +107,7 @@ function guardarComandasEnEstado(filas, fechas){
 function armarMenus(menus, items){
   return menus.map(m => ({ id: m.id, nombre: m.nombre, descripcion: m.descripcion || '', activo: m.activo !== false,
     precio: m.precio == null ? null : Number(m.precio), categoria: m.categoria || '', llevaGuarnicion: !!m.lleva_guarnicion,
+    creado: m.created_at || null,   // cuándo se cargó: el pedido nuevo muestra los platos en ese orden (el de la carta)
     items: items.filter(i => i.menu_id === m.id).map(i => ({ productoId: i.producto_id, cantidad: Number(i.cantidad) || 0 })) }));
 }
 
@@ -294,8 +295,15 @@ function tieneRegistro(c, fecha){ const e = getEntrega(c.id, fecha); return !!(e
 /* ---------- comandas ---------- */
 const lineasComanda = (clienteId, fecha, turno) => state.comandas[claveT(clienteId, fecha, turno)] || [];
 const menuPorId = (id) => state.menus.find(m => m.id === id);
-// los menús van de menor a mayor precio (los que no tienen precio, al final) y a igual precio por nombre
-const ordenMenus = (a, b) => (a.precio ?? Infinity) - (b.precio ?? Infinity) || a.nombre.localeCompare(b.nombre, 'es');
+// los menús van siempre en orden alfabético, sin importar el precio; adelante solo los menús del día:
+// el "Menú del día" y el "Menú sin TACC" (el menú del día de los sin TACC)
+const MENUS_DEL_DIA = ['menu del dia', 'menu sin tacc'];
+const esMenuDelDia = (m) => MENUS_DEL_DIA.includes(normalizarNombre(m.nombre));
+const ordenMenus = (a, b) => {
+  const da = MENUS_DEL_DIA.indexOf(normalizarNombre(a.nombre)), db = MENUS_DEL_DIA.indexOf(normalizarNombre(b.nombre));
+  if(da !== db) return (da < 0 ? 99 : da) - (db < 0 ? 99 : db);
+  return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base', numeric: true });
+};
 /* ENTREGAS (packs y clientes fijos): cada vianda es una unidad y descuenta un crédito.
    No dependen de las comandas, que son pedidos particulares aparte. */
 function recibeTurno(c, fecha, turno){
@@ -830,7 +838,8 @@ async function guardarMenu(id, datos){
     if(e2) throw e2;
   }
   const m = { id: data.id, nombre: data.nombre, descripcion: data.descripcion || '', activo: data.activo !== false, items: items.map(i => ({ ...i })),
-              precio: data.precio == null ? null : Number(data.precio), categoria: data.categoria || '', llevaGuarnicion: !!data.lleva_guarnicion };
+              precio: data.precio == null ? null : Number(data.precio), categoria: data.categoria || '', llevaGuarnicion: !!data.lleva_guarnicion,
+              creado: data.created_at || null };
   const i = state.menus.findIndex(x => x.id === m.id);
   if(i >= 0) state.menus[i] = m; else state.menus.push(m);
   state.menus.sort(ordenMenus);
