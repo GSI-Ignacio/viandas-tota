@@ -17,6 +17,7 @@ const rutaCallesDe = {};   // cadeteId → { km, min } del recorrido por las cal
 let rutaFoco = null;       // el cadete que se está mirando (su recorrido resalta en el mapa)
 let rutaLinks = {};        // cadeteId → su link vigente
 let rutaRepintar = null;   // vuelve a pintar la lista de Recorridos (si está abierta)
+const rutaVerHechas = new Set();   // las tarjetas que muestran sus paradas ya entregadas
 
 function borradorDesdeEstado(fecha){
   const asig = {};
@@ -32,16 +33,24 @@ function paradasBorrador(kid){
     .sort((x, y) => b.asig[x.id].orden - b.asig[y.id].orden);
 }
 function renumerar(kid){ paradasBorrador(kid).forEach((c, i) => { rutaBorrador.asig[c.id].orden = i + 1; }); }
-function optimizarGrupo(kid){
-  const ps = paradasBorrador(kid);
-  const orden = ordenarRecorrido(cocina(), ps.filter(tieneUbicacion)).concat(ps.filter(c => !tieneUbicacion(c)));
-  orden.forEach((c, i) => { rutaBorrador.asig[c.id].orden = i + 1; });
+// lo ya entregado queda primero (como fue); lo que falta se ordena desde la última entrega, o desde la cocina
+function partesParaOrdenar(kid){
+  const f = rutaBorrador.fecha, ps = paradasBorrador(kid);
+  const hechas = ps.filter(c => !paradaPendiente(c, f)), pend = ps.filter(c => paradaPendiente(c, f));
+  const ok = pend.filter(enRecorrido), resto = pend.filter(c => !enRecorrido(c));
+  const desde = [...hechas].reverse().find(enRecorrido) || cocina();
+  return { hechas, ok, resto, desde };
 }
-/* Optimizar de verdad: el orden más corto por las calles desde la cocina (si no se puede, por cercanía). */
+const numerar = (lista) => lista.forEach((c, i) => { rutaBorrador.asig[c.id].orden = i + 1; });
+function optimizarGrupo(kid){
+  const { hechas, ok, resto, desde } = partesParaOrdenar(kid);
+  numerar([...hechas, ...ordenarRecorrido(desde, ok), ...resto]);
+}
+/* Optimizar de verdad: el orden más corto por las calles (si no se puede, por cercanía). */
 async function optimizarPorCalles(kid){
-  const ps = paradasBorrador(kid), ubicados = ps.filter(tieneUbicacion);
-  const orden = await ordenPorCalles(cocina(), ubicados, medioDe(kid)) || ordenarRecorrido(cocina(), ubicados);
-  orden.concat(ps.filter(c => !tieneUbicacion(c))).forEach((c, i) => { rutaBorrador.asig[c.id].orden = i + 1; });
+  const { hechas, ok, resto, desde } = partesParaOrdenar(kid);
+  const orden = await ordenPorCalles(desde, ok, medioDe(kid)) || ordenarRecorrido(desde, ok);
+  numerar([...hechas, ...orden, ...resto]);
 }
 function textoRutaWhatsApp(k, paradas){
   const f = rutaBorrador.fecha;
@@ -126,13 +135,23 @@ function renderRutas(bar, main){
       const linea = tieneUbicacion(co) ? [[co.lat, co.lng]] : [];
       ps.forEach((c, i) => {
         if(!tieneUbicacion(c)) return;
+        const k = cadetePorId(kid), lejos = lejosKm(c);
+        if(lejos){
+          window.L.marker([c.lat, c.lng], { icon: pinIcono('!', '#C81E1E'), opacity: op }).addTo(capa)
+            .bindPopup(`<b>${esc(c.nombre)}</b><br>${esc(c.direccion)}<br><span style="color:#C81E1E">Queda a ${Math.round(lejos)} km de la cocina: revisá la dirección</span>
+              ${puedeArmarRutas() ? `<br><button type="button" class="btn quiet mapa-dir" data-dir-mapa="${c.id}">${icon('pin', 12)} Cambiar dirección</button>` : ''}`);
+          return;
+        }
         linea.push([c.lat, c.lng]); todos.push([c.lat, c.lng]);
-        const k = cadetePorId(kid);
         if(kid && kid === rutaFoco) enFoco.push([c.lat, c.lng]);
         window.L.marker([c.lat, c.lng], { icon: pinIcono(String(i + 1), color, paradaPendiente(c, rutaFecha) ? '' : 'done'), opacity: op, zIndexOffset: tenue ? -500 : 0 }).addTo(capa)
           .bindPopup(`<b>${esc(c.nombre)}</b><br>${esc(c.direccion)}<br>${k ? esc(k.nombre) : 'Sin cadete'} · parada ${i + 1}
             ${puedeArmarRutas() ? `<br><button type="button" class="btn quiet mapa-dir" data-dir-mapa="${c.id}">${icon('pin', 12)} Cambiar dirección</button>` : ''}`);
       });
+      if(kid && linea.length <= 1 && rutaCallesDe[kid]){   // ya no queda camino que dibujar (todo lejos o sin ubicación)
+        delete rutaCallesDe[kid];
+        const g = document.getElementById(`gkm-${kid}`); if(g) g.innerHTML = '';
+      }
       if(kid && linea.length > 1){
         // mientras llega el camino por las calles va en línea recta, tenue
         const recto = window.L.polyline(linea, { color, weight: 3, opacity: .35 * op, dashArray: '3 8' }).addTo(miCapa);
@@ -175,7 +194,9 @@ function renderRutas(bar, main){
     const cont = document.getElementById('r-lista');
     const hoyEs = rutaFecha === todayStr();
     const cadetes = state.cadetes.filter(k => k.activo || paradasBorrador(k.id).length);
-    const sinCadete = paradasBorrador(null);
+    // sin cadete: lo que falta entregar (lo ya entregado no necesita quién lo lleve)
+    const sinCadete = paradasBorrador(null).filter(c => paradaPendiente(c, rutaFecha));
+    const lejanas = delDia.filter(c => lejosKm(c));
     const totalPlatos = delDia.reduce((s, c) => s + platosParada(c, rutaFecha), 0);
     // una parada: arrastrable, con a quién, dónde y qué lleva; tocarla cambia la dirección
     const parada = (c, i, kid, n) => {
@@ -186,6 +207,7 @@ function renderRutas(bar, main){
         <div class="t" ${editable ? `data-dir="${c.id}" role="button" tabindex="0" title="Cambiar la dirección"` : ''}>
           <div class="n">${esc(c.nombre)}${hecha ? ' <span class="tag ok">Entregado</span>' : ''}</div>
           <div class="s">${tieneUbicacion(c) ? '' : '<span class="sin-ubic">Sin ubicación · </span>'}${esc(c.direccion || 'Sin dirección')}</div>
+          ${lejosKm(c) ? `<div class="s rt-lejos">${icon('alerta', 12)} Queda a ${fmtNum(Math.round(lejosKm(c)))} km de la cocina: tocá para revisar la dirección</div>` : ''}
           <div class="s lleva">${esc(queLleva(c, rutaFecha))}</div></div>
         ${editable ? `<div class="rt-mover">
           <select class="inp sm" data-asignar="${c.id}" aria-label="Pasar ${esc(c.nombre)} a otro cadete" title="Pasar a otro cadete">
@@ -195,11 +217,26 @@ function renderRutas(bar, main){
             <button class="iconbtn sm" data-baja="${c.id}" aria-label="Bajar" ${i === n - 1 ? 'disabled' : ''}>${icon('down', 13)}</button></span></div>` : ''}
       </li>`;
     };
+    const paradaHecha = (c) => `<li class="stop rt-parada hecha">
+        <span class="ord">${icon('check', 12)}</span>
+        <div class="t"><div class="n">${esc(c.nombre)}</div><div class="s">${esc(c.direccion || 'Sin dirección')}</div>
+          <div class="s lleva">${esc(queLleva(c, rutaFecha))}</div></div></li>`;
+    // lo que falta (para ordenar y mover) y, plegado abajo, lo ya entregado
+    const listaParadas = (ps, kid, vacio) => {
+      const pend = ps.filter(c => paradaPendiente(c, rutaFecha)), listas = ps.filter(c => !paradaPendiente(c, rutaFecha));
+      const clave = kid || 'sin', abiertas = rutaVerHechas.has(clave);
+      return `${pend.map(c => parada(c, ps.indexOf(c), kid, ps.length)).join('')}
+        ${!pend.length && listas.length ? `<li class="rt-termino">${icon('check', 14)} Terminó: ${plural(listas.length, 'parada entregada', 'paradas entregadas')}.</li>` : ''}
+        ${!ps.length ? `<li class="rt-vacio">${vacio}</li>` : ''}
+        ${listas.length ? `<li class="rt-ver-fila"><button type="button" class="rt-ver-hechas" data-ver-hechas="${clave}" aria-expanded="${abiertas}">
+            ${icon(abiertas ? 'chevD' : 'chevR', 13)} ${abiertas ? 'Ocultar' : 'Ver'} ${plural(listas.length, 'entregada', 'entregadas')}</button></li>
+          ${abiertas ? listas.map(paradaHecha).join('') : ''}` : ''}`;
+    };
     // la tarjeta de un cadete: quién es, cómo reparte, su link, cuánto lleva, cómo va y sus paradas
     const tarjeta = (k) => {
       const kid = k ? k.id : null, ps = paradasBorrador(kid);
       const platos = ps.reduce((s, c) => s + platosParada(c, rutaFecha), 0), hechas = ps.filter(c => !paradaPendiente(c, rutaFecha)).length;
-      const km = largoRecorrido(cocina(), ps.filter(tieneUbicacion));
+      const km = largoRecorrido(cocina(), ps.filter(enRecorrido)), pendientes = ps.filter(c => paradaPendiente(c, rutaFecha)).length;
       const hecho = kid ? rutaPosiciones[kid] || [] : [], ult = hecho[hecho.length - 1];
       const vivo = ult ? Math.round((Date.now() - new Date(ult.at).getTime()) / 60000) : null;
       const link = kid ? rutaLinks[kid] : null;
@@ -207,7 +244,7 @@ function renderRutas(bar, main){
           <header class="rt-cab"><span class="rt-av">${icon('alerta', 15)}</span>
             <div class="rt-quien"><b>${plural(ps.length, 'parada sin cadete', 'paradas sin cadete')}</b>
               <span>Nadie las lleva todavía: arrastralas a un cadete${editable && state.cadetes.some(x => x.activo) ? ' o usá «Repartir por zonas»' : ''}.</span></div></header>
-          <ol class="rt-paradas">${ps.map((c, i) => parada(c, i, null, ps.length)).join('')}</ol></section>`;
+          <ol class="rt-paradas">${listaParadas(ps, null, '')}</ol></section>`;
       const tramos = mapsRecorrido(cocina(), ps, k.medio);
       const wa = k.telefono && ps.length ? waLink(k.telefono, textoRutaWhatsApp(k, ps)) : '';
       return `<section class="rt-cad ${rutaFoco === kid ? 'foco' : ''} ${rutaFoco && rutaFoco !== kid ? 'tenue' : ''}" data-kid="${kid}" style="--c:${k.color}">
@@ -228,20 +265,21 @@ function renderRutas(bar, main){
         ${ps.length && hoyEs && hechas ? `<div class="rt-barra"><i style="width:${Math.round(hechas * 100 / ps.length)}%"></i></div>` : ''}
         <div class="rt-acc">
           ${editable && usaLinksCadete() ? `<button class="btn ${link ? '' : 'primary'}" type="button" data-link="${kid}" title="El link con el que ve sus entregas de a una">${icon('moto', 13)} ${link ? 'Link' : 'Crear link'}</button>` : ''}
-          ${editable && ps.length > 1 ? `<button class="btn" type="button" data-opt="${kid}" title="El orden más corto por las calles desde la cocina">${icon('optimizar', 13)} Optimizar</button>` : ''}
+          ${editable && pendientes > 1 ? `<button class="btn" type="button" data-opt="${kid}" title="El orden más corto por las calles para lo que falta entregar">${icon('optimizar', 13)} Optimizar</button>` : ''}
           ${tramos.map((t, i) => `<a class="btn quiet" href="${t.url}" target="_blank" rel="noopener">${icon('nav', 13)} ${tramos.length > 1 ? `Tramo ${i + 1}` : 'Google Maps'}</a>`).join('')}
           ${wa ? `<a class="btn quiet" href="${wa}" target="_blank" rel="noopener" title="La lista completa, como texto">${icon('wa', 13)} Lista</a>` : ''}
           ${state.versionBase >= 21 ? `<span class="gmedio" role="group" aria-label="Cómo reparte ${esc(k.nombre)}">
             ${['vehiculo', 'pie'].map(m => `<button type="button" data-medio="${m}" data-k="${kid}" aria-pressed="${k.medio === m}" ${editable ? '' : 'disabled'}
               title="${MEDIOS[m]}: ${m === 'pie' ? 'el recorrido va por donde se camina, sin calles de una mano' : 'el recorrido respeta las manos de las calles'}">${icon(m === 'pie' ? 'pie' : 'moto', 13)}<span>${m === 'pie' ? 'A pie' : 'Vehículo'}</span></button>`).join('')}</span>` : ''}
         </div>
-        <ol class="rt-paradas">${ps.length && tieneUbicacion(cocina()) ? `<li class="rt-salida">${icon('hoy', 13)}<span>Sale de la cocina${cocina().direccion ? ` · ${esc(cocina().direccion)}` : ''}</span></li>` : ''}${ps.length ? ps.map((c, i) => parada(c, i, kid, ps.length)).join('')
-          : `<li class="rt-vacio">${editable ? 'Sin paradas: arrastrá una acá, o elegí a este cadete en una parada.' : 'Sin paradas.'}</li>`}</ol>
+        <ol class="rt-paradas">${pendientes && tieneUbicacion(cocina()) ? `<li class="rt-salida">${icon('hoy', 13)}<span>Sale de la cocina${cocina().direccion ? ` · ${esc(cocina().direccion)}` : ''}</span></li>` : ''}
+          ${listaParadas(ps, kid, editable ? 'Sin paradas: arrastrá una acá, o elegí a este cadete en una parada.' : 'Sin paradas.')}</ol>
       </section>`;
     };
     cont.innerHTML = `<div class="rt-resumen">
         <span><b>${delDia.length}</b> ${delDia.length === 1 ? 'parada' : 'paradas'} · <b>${totalPlatos}</b> ${totalPlatos === 1 ? 'plato' : 'platos'} · <b>${cadetes.length}</b> ${cadetes.length === 1 ? 'cadete' : 'cadetes'}</span>
         ${sinCadete.length ? `<span class="rt-alerta">${icon('alerta', 13)} ${plural(sinCadete.length, 'sin cadete')}</span>` : ''}
+        ${lejanas.length ? `<span class="rt-alerta bad">${icon('alerta', 13)} ${plural(lejanas.length, 'dirección para revisar', 'direcciones para revisar')}</span>` : ''}
         ${rutaFoco ? '<button class="btn quiet" type="button" id="rt-todos">Ver todos en el mapa</button>' : ''}</div>
       ${rutaBorrador.sucio ? `<div class="rt-sucio">${icon('alerta', 14)}<span>Hay cambios sin guardar: los cadetes todavía ven el orden anterior.</span>
         <button class="btn" type="button" data-rt="descartar">Descartar</button><button class="btn primary" type="button" data-rt="guardar">${icon('check', 13)} Guardar rutas</button></div>` : ''}
@@ -289,6 +327,11 @@ function renderRutas(bar, main){
       h.addEventListener('click', (e) => { if(e.target.closest('button, a')) return; enfocar(); });
       h.addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); enfocar(); } });
     });
+    cont.querySelectorAll('[data-ver-hechas]').forEach(b => b.addEventListener('click', () => {
+      const k = b.dataset.verHechas;
+      if(rutaVerHechas.has(k)) rutaVerHechas.delete(k); else rutaVerHechas.add(k);
+      pintarLista();
+    }));
     const td = cont.querySelector('#rt-todos'); if(td) td.addEventListener('click', () => { rutaFoco = null; focoNuevo = true; pintarLista(); dibujarMapa(); });
     // guardar o descartar desde el aviso de cambios (los mismos de arriba)
     cont.querySelectorAll('[data-rt]').forEach(b => b.addEventListener('click', () => { const x = document.getElementById(b.dataset.rt === 'guardar' ? 'r-guardar' : 'r-descartar'); if(x) x.click(); }));

@@ -787,6 +787,16 @@ function colorCadete(id){ const k = cadetePorId(id); return k ? k.color : '#8C83
 const pedidoDelDia = (c, fecha) => { const p = pedidoDe(c.id, fecha); return p && p.estado !== 'cancelada' ? p : null; };
 const paradasDelDia = (fecha) => state.clientes.filter(c => turnosDe(c, fecha).length || pedidoDelDia(c, fecha));
 const paradaPendiente = (c, fecha) => clientePendiente(c, fecha) || (pedidoDelDia(c, fecha) || {}).estado === 'pendiente';
+/* Una parada que queda muy lejos de la cocina casi seguro tiene mal la dirección (el buscador eligió otra
+   ciudad): se marca para revisar y no entra en el recorrido ni en los kilómetros. Devuelve a cuántos km, o null. */
+const LEJOS_KM = 40;
+function lejosKm(c){
+  const co = cocina();
+  if(!tieneUbicacion(c) || !tieneUbicacion(co)) return null;
+  const d = distanciaKm(co, c);
+  return d > LEJOS_KM ? d : null;
+}
+const enRecorrido = (c) => tieneUbicacion(c) && !lejosKm(c);
 // cuántos platos lleva: sus viandas y lo del pedido
 const platosParada = (c, fecha) => turnosDe(c, fecha).reduce((s, t) => s + viandasTurno(c, fecha, t), 0) + ((pedidoDelDia(c, fecha) || {}).viandas || 0);
 // qué lleva, en palabras: "2 viandas · 1× Milanesa con puré"
