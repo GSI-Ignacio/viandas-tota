@@ -201,30 +201,39 @@ function bindCarta(main){
   main.querySelectorAll('[data-agregar]').forEach(b => b.addEventListener('click', () => dialogoAgregarACarta(b.dataset.agregar)));
 }
 
-/* Agregar platos (o guarniciones) a una sección: se eligen de lo que ya está cargado, o se crea uno nuevo. */
+/* Los platos (o guarniciones) de una sección: los que ya están aparecen tildados; se tilda lo que se suma
+   y se destilda lo que se saca. Si no existe, se crea uno nuevo. */
 function dialogoAgregarACarta(secId){
   const s = cartaActual().secciones.find(x => x.id === secId); if(!s) return;
   const guarn = s.tipo === 'guarniciones';
-  const ya = new Set(s.items.map(it => it.menuId || it.productoId));
-  const opciones = (guarn ? state.productos.filter(p => p.activo && p.esGuarnicion) : state.menus.filter(m => m.activo).sort(ordenMenus)).filter(x => !ya.has(x.id));
+  const idDe = (it) => it.menuId || it.productoId;
+  const ya = s.items.map(idDe);
+  const todos = guarn ? state.productos.filter(p => p.activo && p.esGuarnicion) : state.menus.filter(m => m.activo).sort(ordenMenus);
   const sugeridos = new Set(guarn ? [] : platosParaSeccion(s.titulo).map(m => m.id));
-  const fila = (x) => `<label class="check ca-op" data-busca="${esc(normalizarNombre(x.nombre + ' ' + (x.categoria || '')))}">
-      <input type="checkbox" value="${x.id}"><span class="t">${esc(x.nombre)}${!guarn && x.categoria ? `<small>${esc(x.categoria)}</small>` : ''}</span>
+  // arriba los que ya están (en su orden), después los de esta categoría y al final el resto
+  const orden = [...ya.map(id => todos.find(x => x.id === id)).filter(Boolean),
+    ...todos.filter(x => !ya.includes(x.id) && sugeridos.has(x.id)), ...todos.filter(x => !ya.includes(x.id) && !sugeridos.has(x.id))];
+  const fila = (x) => `<label class="check ca-op ${ya.includes(x.id) ? 'esta' : ''}" data-busca="${esc(normalizarNombre(x.nombre + ' ' + (x.categoria || '')))}">
+      <input type="checkbox" value="${x.id}" ${ya.includes(x.id) ? 'checked' : ''}><span class="t">${esc(x.nombre)}${!guarn && x.categoria ? `<small>${esc(x.categoria)}</small>` : ''}</span>
       ${!guarn && x.precio != null ? `<b>${fmtPlata(x.precio)}</b>` : ''}</label>`;
-  const orden = [...opciones.filter(x => sugeridos.has(x.id)), ...opciones.filter(x => !sugeridos.has(x.id))];
   dialogo({
-    titulo: `Agregar a "${s.titulo}"`,
-    texto: guarn ? 'Elegí las guarniciones que querés mostrar.' : 'Elegí de los platos que ya tenés cargados (arriba, los de esta categoría). Si no está, crealo.',
+    titulo: `${guarn ? 'Guarniciones' : 'Platos'} de "${s.titulo}"`,
+    texto: `Tildá lo que va en esta sección y destildá lo que querés sacar. ${guarn ? '' : 'Arriba, los que ya están y los de esta categoría.'}`,
     html: `<div class="pn-buscar" style="margin-bottom:8px">${icon('buscar', 15)}<input class="inp" id="ca-busca" placeholder="Buscar…" autocomplete="off"></div>
-      <div class="ca-lista">${orden.length ? orden.map(fila).join('') : `<div class="calm">${icon('check')} Ya están todos en esta sección.</div>`}</div>`,
-    botones: [{ id: 'nuevo', label: guarn ? 'Crear guarnición nueva' : 'Crear plato nuevo' }, { id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Agregar', clase: 'primary', domId: 'ca-agregar' }],
+      <div class="ca-lista">${orden.length ? orden.map(fila).join('') : `<div class="calm">${icon('info')} Todavía no hay ${guarn ? 'guarniciones' : 'platos'} cargados.</div>`}</div>`,
+    botones: [{ id: 'nuevo', label: guarn ? 'Crear guarnición nueva' : 'Crear plato nuevo' }, { id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Listo', clase: 'primary', domId: 'ca-agregar' }],
     onMount: (el) => {
       const bq = el.querySelector('#ca-busca');
       bq.addEventListener('input', () => { const q = normalizarNombre(bq.value); el.querySelectorAll('.ca-op').forEach(o => { o.hidden = !!q && !o.dataset.busca.includes(q); }); });
       const btn = el.querySelector('#ca-agregar');
-      const contar = () => { const n = el.querySelectorAll('.ca-op input:checked').length; btn.textContent = n ? `Agregar ${n}` : 'Agregar'; };
+      // el botón cuenta lo que cambia
+      const contar = () => {
+        const tild = [...el.querySelectorAll('.ca-op input')].filter(x => x.checked).map(x => x.value);
+        const suma = tild.filter(id => !ya.includes(id)).length, saca = ya.filter(id => todos.some(x => x.id === id) && !tild.includes(id)).length;
+        btn.textContent = suma || saca ? [suma && `Sumar ${suma}`, saca && `sacar ${saca}`].filter(Boolean).join(' y ') : 'Listo';
+      };
       el.querySelectorAll('.ca-op input').forEach(x => x.addEventListener('change', contar));
-      el._validar = (boton) => boton !== 'ok' || el.querySelectorAll('.ca-op input:checked').length > 0 || marcarFalta(el.querySelector('.ca-lista'), 'Elegí al menos uno.');
+      contar();
     }
   }).then(async (r) => {
     if(!r) return;
@@ -241,8 +250,14 @@ function dialogoAgregarACarta(secId){
       }catch(e){ toastError('No se pudo crear la guarnición', e); }
       return;
     }
-    const ids = [...r.el.querySelectorAll('.ca-op input:checked')].map(x => x.value);
-    cambiarCarta(c => { const x = c.secciones.find(y => y.id === secId); if(x) x.items.push(...ids.map(id => guarn ? { productoId: id } : { menuId: id })); });
+    const tild = [...r.el.querySelectorAll('.ca-op input')].filter(x => x.checked).map(x => x.value);
+    const nuevos = tild.filter(id => !ya.includes(id));
+    cambiarCarta(c => {
+      const x = c.secciones.find(y => y.id === secId); if(!x) return;
+      // se sacan los destildados (los desactivados, que no están en la lista, quedan) y se suman los nuevos al final
+      x.items = x.items.filter(it => !todos.some(o => o.id === idDe(it)) || tild.includes(idDe(it)));
+      x.items.push(...nuevos.map(id => guarn ? { productoId: id } : { menuId: id }));
+    });
   });
 }
 
