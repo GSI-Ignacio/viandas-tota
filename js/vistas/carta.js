@@ -5,28 +5,64 @@
    cargados, con su precio. Se guarda sola mientras se edita. Desde acá se
    comparte como imagen por WhatsApp y se actualiza el link fijo, que
    siempre muestra la última versión publicada.
-   "Todos los platos" es la lista de siempre (precios, productos de stock).
+   Los platos salen del Stock (la única lista, con su precio y su stock):
+   tocar un plato abre su ficha, y uno nuevo queda también en el Stock.
 ============================================================= */
-let menuVista = 'carta';   // carta | platos
 let cartaGuardarT = null;
 
-const SECCIONES_SUGERIDAS = ['Menú del día', 'Sin TACC', 'Entradas', 'Carnes', 'Pollo', 'Pastas', 'Tartas', 'Varios', 'Guarniciones', 'Bebidas', 'Postres', 'Promociones'];
-const esSinTaccMenu = (m) => normalizarNombre(m.categoria) === 'sin tacc' || /\bsin\s*tacc\b/i.test(m.nombre);
+// categorías que se ofrecen para sumar a la carta (si todavía no existen)
+const CATEGORIAS_SUGERIDAS = ['Entradas', 'Carnes', 'Pollo', 'Pastas', 'Tartas', 'Ensaladas', 'Bebidas', 'Postres', 'Promociones'];
 const nuevoIdSeccion = () => 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+// el título de una sección nueva: el de su categoría ("Del día" → "Menú del día")
+const tituloDeCategoria = (cat) => mismaCategoria(cat, 'Del día') ? 'Menú del día' : cat;
 
-/* Los platos que ya están cargados para una sección nueva (se cargan solos al agregarla). */
-function platosParaSeccion(titulo){
-  const t = normalizarNombre(titulo), activos = state.menus.filter(m => m.activo);
-  const deCat = (cat) => activos.filter(m => normalizarNombre(m.categoria) === normalizarNombre(cat));
-  const deCarta = (m) => !esSinTaccMenu(m) && normalizarNombre(m.categoria) !== 'del dia';
-  let ms;
-  if(t === 'menu del dia') ms = deCat('Del día').filter(m => !esSinTaccMenu(m));
-  else if(t === 'sin tacc') ms = activos.filter(esSinTaccMenu);
-  // tartas y pastas: las de la carta (las del menú del día y las sin TACC van en sus secciones)
-  else if(t === 'tartas') ms = activos.filter(m => /^tarta/.test(normalizarNombre(m.nombre)) && deCarta(m));
-  else if(t === 'pastas') ms = activos.filter(m => /\b(ravioles|sorrentinos|canelones|fideos|noquis|lasagna|tallarines)\b/.test(normalizarNombre(m.nombre)) && deCarta(m));
-  else ms = deCat(titulo);
-  return ms.sort(ordenMenus);
+/* Cada sección de platos es de una categoría y muestra solo sus platos. Las cartas armadas antes de
+   las categorías no la tienen guardada: sale del título ("Menú del día" → Del día). */
+function categoriaDeSeccion(s){
+  if(!s || s.tipo === 'guarniciones') return null;
+  if(s.categoria) return nombreCategoria(s.categoria);
+  return categorias().find(c => mismaCategoria(c, normalizarNombre(s.titulo) === 'menu del dia' ? 'Del día' : s.titulo)) || null;
+}
+// los platos activos de una categoría (se cargan solos al agregar su sección)
+const platosParaCategoria = (cat) => state.menus.filter(m => m.activo && m.categoria && mismaCategoria(m.categoria, cat)).sort(ordenMenus);
+
+/* Una sola vez, en una carta armada antes de las categorías: cada sección queda con la suya. Si el
+   título no es una categoría (ej. "Tartas", con tartas de "Varios"), se crea y sus platos pasan ahí,
+   salvo los que son de la categoría de otra sección. */
+let cartaAlineada = false;
+async function alinearCartaConCategorias(){
+  const c = cartaActual();
+  if(cartaAlineada || !esDueno() || !usaCarta() || !usaCategorias() || !c.secciones.some(s => s.tipo !== 'guarniciones' && !s.categoria)) return;
+  cartaAlineada = true;
+  try{
+    const deSeccion = (cat) => c.secciones.some(o => mismaCategoria(categoriaDeSeccion(o) || '', cat));
+    // si la lista todavía no se guardó, arranca en el orden de la carta
+    const lista = Array.isArray(state.config.categorias) ? categorias()
+      : [...c.secciones.map(categoriaDeSeccion).filter(Boolean), ...categorias()];
+    let movidos = 0;
+    for(const s of c.secciones.filter(x => x.tipo !== 'guarniciones' && !x.categoria)){
+      const cat = categoriaDeSeccion(s);
+      if(cat){ s.categoria = cat; continue; }
+      s.categoria = s.titulo.trim();
+      if(!lista.some(x => mismaCategoria(x, s.categoria))){
+        // en su lugar de la carta: antes de la categoría de la sección que le sigue
+        const sig = c.secciones.slice(c.secciones.indexOf(s) + 1).map(categoriaDeSeccion).find(Boolean);
+        const k = sig ? lista.findIndex(x => mismaCategoria(x, sig)) : -1;
+        if(k >= 0) lista.splice(k, 0, s.categoria); else lista.push(s.categoria);
+      }
+      const ids = s.items.map(i => menuPorId(i.menuId)).filter(m => m && !mismaCategoria(m.categoria, s.categoria) && !(m.categoria && deSeccion(m.categoria))).map(m => m.id);
+      if(ids.length){
+        const { error } = await sb.from('menus').update({ categoria: s.categoria }).in('id', ids);
+        if(error) throw error;
+        state.menus.forEach(m => { if(ids.includes(m.id)) m.categoria = s.categoria; });
+        movidos += ids.length;
+      }
+    }
+    await guardarCategorias(lista);
+    await guardarCarta(c);
+    if(movidos) toast(`Ordené la carta por categorías: ${plural(movidos, 'plato pasó', 'platos pasaron')} a la categoría de su sección.`, 'info');
+    if(activeTab === 'menus' || activeTab === 'stock') render();
+  }catch(e){ console.error('No se pudo ordenar la carta por categorías', e); }
 }
 /* Cambia la carta: se ve enseguida y se guarda sola un momento después. */
 function cambiarCarta(fn){
@@ -75,7 +111,7 @@ function seccionHtml(s, { edita, imagen }){
           <span class="c-n" ${edita ? `data-editar="${x.m.id}" role="button" tabindex="0" title="Editar el plato"` : ''}>${esc(nombreEnSeccion(x.m, s))}${extra(x.m)}${off(x.m)}</span>${acts(`${s.id}:${x.i}`)}</li>`).join('')}</ul>`;
     }else{
       cuerpo = ps.map(x => `<div class="c-item ${x.m.activo ? '' : 'off'}" data-item="${s.id}:${x.i}">
-          <span class="c-n" ${edita ? `data-editar="${x.m.id}" role="button" tabindex="0" title="Editar el plato (precio, productos)"` : ''}>${esc(nombreEnSeccion(x.m, s))}${extra(x.m)}${off(x.m)}</span>
+          <span class="c-n" ${edita ? `data-editar="${x.m.id}" role="button" tabindex="0" title="Editar el plato (precio, stock)"` : ''}>${esc(nombreEnSeccion(x.m, s))}${extra(x.m)}${off(x.m)}</span>
           <span class="c-dots"></span><span class="c-p">${x.m.precio != null ? fmtPlata(x.m.precio) : ''}</span>${acts(`${s.id}:${x.i}`)}</div>`).join('');
     }
   }
@@ -104,40 +140,40 @@ function cartaHtml(carta, { edita = false, imagen = false } = {}){
 
 /* ---------- la pestaña ---------- */
 function renderMenuTab(bar, main){
-  if(!usaCarta()) menuVista = 'platos';   // sin la base en la v15 no hay carta: queda la lista
-  bar.innerHTML = `<h1>Menú</h1>
-    <div class="seg" role="group" aria-label="Vista">
-      <button data-mv="carta" aria-pressed="${menuVista === 'carta'}" ${usaCarta() ? '' : 'disabled title="Actualizá la base (actualizar-base.sql) para usar la carta"'}>Carta</button>
-      <button data-mv="platos" aria-pressed="${menuVista === 'platos'}">Todos los platos</button>
-    </div><div class="sp"></div>
-    ${menuVista === 'carta'
-      ? `<span class="muted carta-estado" id="carta-estado"></span>
-         ${puedeElegirCartaDia(todayStr()) ? `<button class="btn" id="elegir-menu-dia">${icon('menu', 14)} Menú del día</button>` : ''}
-         <button class="btn primary" id="carta-compartir">${icon('wa', 14)} Compartir</button>`
-      : `${esDueno() && menusSinProductos().length ? `<button class="btn" id="menus-a-stock">${icon('caja', 14)} Pasar menús al stock</button>` : ''}
-         ${esDueno() ? `<button class="btn" id="pegar-carta">${icon('copiar', 14)} Pegar carta</button>
-           <button class="btn primary" id="nuevo-menu">${icon('plus', 14)} Nuevo menú</button>` : '<span class="muted">Solo lectura</span>'}`}`;
-  bar.querySelectorAll('[data-mv]').forEach(b => b.addEventListener('click', () => { menuVista = b.dataset.mv; render(); }));
+  bar.innerHTML = `<h1>Menú</h1><div class="sp"></div>
+    ${usaCarta() ? `<span class="muted carta-estado" id="carta-estado"></span>
+      ${puedeElegirCartaDia(todayStr()) ? `<button class="btn" id="elegir-menu-dia">${icon('menu', 14)} Menú del día</button>` : ''}
+      <button class="btn primary" id="carta-compartir">${icon('wa', 14)} Compartir</button>` : ''}`;
   const on = (sel, fn) => { const b = bar.querySelector(sel); if(b) b.addEventListener('click', fn); };
-  on('#menus-a-stock', () => abrirMenusAStock());
-  on('#nuevo-menu', () => abrirMenu(null));
-  on('#pegar-carta', () => abrirPegarCarta());
   on('#elegir-menu-dia', () => abrirCartaDia(todayStr()));
   on('#carta-compartir', () => abrirCompartirCarta());
-  if(menuVista === 'platos') return renderMenus(main);
+  // sin la base en la v15 no hay dónde guardar la carta
+  if(!usaCarta()){
+    main.innerHTML = `<div class="page"><div class="clist"><div class="stub" style="margin:28px auto"><div class="ico">${icon('menu', 20)}</div><h2>Falta actualizar la base de datos</h2>
+      <p>Para armar la carta hay que correr <b>actualizar-base.sql</b> en Supabase. Mientras tanto, los platos y sus precios están en <b>Stock</b>.</p>
+      <button class="btn lg" type="button" id="ir-stock">${icon('caja', 14)} Ir a Stock</button></div></div></div>`;
+    main.querySelector('#ir-stock').addEventListener('click', () => irA('stock'));
+    return;
+  }
+  alinearCartaConCategorias();
   renderCarta(main);
 }
 
 function renderCarta(main){
-  const carta = cartaActual(), edita = esDueno();
-  const yaEstan = new Set(carta.secciones.map(s => normalizarNombre(s.titulo)));
+  const carta = cartaActual(), edita = esDueno(), cats = categorias();
+  const usadas = carta.secciones.map(categoriaDeSeccion).filter(Boolean);
+  const libres = cats.filter(c => !usadas.some(u => mismaCategoria(u, c)));
+  const sugeridas = CATEGORIAS_SUGERIDAS.filter(t => !cats.some(c => mismaCategoria(c, t)));
   main.innerHTML = `<div class="page carta-page"><div class="carta-mesa">
     ${cartaHtml(carta, { edita })}
     ${edita ? `<section class="carta-agregar">
       <h3>${icon('plus', 14)} Agregar una sección</h3>
-      <div class="carta-chips">${SECCIONES_SUGERIDAS.filter(t => !yaEstan.has(normalizarNombre(t))).map(t => `<button type="button" class="chip" data-nueva="${esc(t)}">${esc(t)}</button>`).join('')}
-        <button type="button" class="chip" data-nueva="">Otra…</button></div>
-      <p class="help">Si ya tenés platos de esa categoría, se cargan solos; después sacás o sumás los que quieras. Tocá un plato para cambiar su precio, y los títulos para escribir encima.</p>
+      <div class="carta-chips">${libres.map(c => `<button type="button" class="chip" data-sec-cat="${esc(c)}">${esc(tituloDeCategoria(c))}</button>`).join('')}
+        ${carta.secciones.some(s => s.tipo === 'guarniciones') ? '' : '<button type="button" class="chip" data-sec-guarn>Guarniciones</button>'}
+        ${sugeridas.map(t => `<button type="button" class="chip sug" data-sec-nueva="${esc(t)}" title="Crea la categoría ${esc(t)}">+ ${esc(t)}</button>`).join('')}
+        <button type="button" class="chip sug" data-sec-nueva="">Otra…</button></div>
+      <p class="help">Cada sección es una categoría y muestra solo sus platos del Stock: los que ya tenés se cargan solos, y después sacás o sumás los que quieras.
+        Tocá un plato para cambiar su precio, y los títulos para escribir encima. <button type="button" class="pn-link" id="editar-categorias">Editar categorías</button></p>
     </section>` : ''}
   </div></div>`;
   bindCarta(main);
@@ -159,22 +195,27 @@ function bindCarta(main){
       }
     });
   });
-  // secciones nuevas: con los platos que ya están cargados de esa categoría
-  main.querySelectorAll('[data-nueva]').forEach(b => b.addEventListener('click', async () => {
-    let titulo = b.dataset.nueva;
-    if(!titulo){
-      const r = await dialogo({ titulo: 'Sección nueva', html: `<div class="field"><label for="f-sec-nombre">Nombre de la sección${REQ}</label><input type="text" id="f-sec-nombre" placeholder="Ej: Ensaladas, Para compartir…" autofocus></div>`,
-        botones: [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Agregar sección', clase: 'primary' }],
-        onMount: (el) => { el._validar = () => el.querySelector('#f-sec-nombre').value.trim() ? true : marcarFalta(el.querySelector('#f-sec-nombre'), 'Poné el nombre de la sección.'); } });
-      if(!r) return;
-      titulo = r.el.querySelector('#f-sec-nombre').value.trim();
-    }
-    const guarn = normalizarNombre(titulo) === 'guarniciones';
-    const items = guarn ? state.productos.filter(p => p.activo && p.esGuarnicion).map(p => ({ productoId: p.id }))
-                        : platosParaSeccion(titulo).map(m => ({ menuId: m.id }));
-    cambiarCarta(c => { c.secciones.push({ id: nuevoIdSeccion(), titulo, tipo: guarn ? 'guarniciones' : 'platos', items }); });
-    toast(items.length ? `<b>${esc(titulo)}</b> agregada con ${plural(items.length, guarn ? 'guarnición' : 'plato', guarn ? 'guarniciones' : 'platos')} que ya tenías.` : `<b>${esc(titulo)}</b> agregada: sumale platos con "Agregar plato".`);
+  // secciones nuevas: una categoría, con los platos que ya tiene
+  const agregarSeccion = (cat) => {
+    const items = platosParaCategoria(cat).map(m => ({ menuId: m.id })), titulo = tituloDeCategoria(cat);
+    cambiarCarta(c => { c.secciones.push({ id: nuevoIdSeccion(), titulo, tipo: 'platos', categoria: cat, items }); });
+    toast(items.length ? `<b>${esc(titulo)}</b> agregada con ${plural(items.length, 'plato', 'platos')} de esa categoría.` : `<b>${esc(titulo)}</b> agregada: sumale platos con "Agregar plato".`);
+  };
+  main.querySelectorAll('[data-sec-cat]').forEach(b => b.addEventListener('click', () => agregarSeccion(b.dataset.secCat)));
+  // una categoría que todavía no existe: se crea (y queda para los platos)
+  main.querySelectorAll('[data-sec-nueva]').forEach(b => b.addEventListener('click', async () => {
+    const nombre = b.dataset.secNueva || await pedirNombreCategoria();
+    if(!nombre) return;
+    try{ agregarSeccion(await agregarCategoria(nombre) || nombre); }
+    catch(e){ toastError('No se pudo crear la categoría', e); }
   }));
+  const bg = main.querySelector('[data-sec-guarn]');
+  if(bg) bg.addEventListener('click', () => {
+    const items = guarniciones().map(p => ({ productoId: p.id }));
+    cambiarCarta(c => { c.secciones.push({ id: nuevoIdSeccion(), titulo: 'Guarniciones', tipo: 'guarniciones', items }); });
+    toast(items.length ? `<b>Guarniciones</b> agregada con ${plural(items.length, 'guarnición', 'guarniciones')}.` : '<b>Guarniciones</b> agregada: sumale con "Agregar guarnición".');
+  });
+  const ec = main.querySelector('#editar-categorias'); if(ec) ec.addEventListener('click', () => abrirCategorias());
   // subir, bajar y quitar: secciones ("id") o platos ("id:posición")
   const mover = (ref, paso) => cambiarCarta(c => {
     const [id, i] = ref.split(':');
@@ -188,58 +229,72 @@ function bindCarta(main){
     const [id, i] = b.dataset.quitar.split(':');
     if(i === undefined){
       const s = seccion(cartaActual(), id);
-      if(!(await confirmar('Sacar la sección', `¿Sacar <b>${esc(s.titulo)}</b> de la carta? Los platos siguen cargados; solo dejan de verse en la carta.`, { ok: 'Sacar', peligro: true }))) return;
+      if(!(await confirmar('Sacar la sección', `¿Sacar <b>${esc(s.titulo)}</b> de la carta? Los platos siguen en el Stock; solo dejan de verse en la carta.`, { ok: 'Sacar', peligro: true }))) return;
       cambiarCarta(c => { c.secciones = c.secciones.filter(x => x.id !== id); });
     }else cambiarCarta(c => { seccion(c, id).items.splice(Number(i), 1); });
   }));
-  // tocar un plato: se edita (precio, productos, guarnición); la carta se actualiza sola
+  // tocar un plato: se abre su ficha del stock (precio, guarnición, stock); la carta se actualiza sola
   main.querySelectorAll('[data-editar]').forEach(el => {
-    const abrir = () => abrirMenu(el.dataset.editar);
+    const abrir = () => abrirPlato(el.dataset.editar);
     el.addEventListener('click', abrir);
     el.addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); abrir(); } });
   });
   main.querySelectorAll('[data-agregar]').forEach(b => b.addEventListener('click', () => dialogoAgregarACarta(b.dataset.agregar)));
 }
 
-/* Los platos (o guarniciones) de una sección: los que ya están aparecen tildados; se tilda lo que se suma
-   y se destilda lo que se saca. Si no existe, se crea uno nuevo. */
+/* Los platos de la categoría de una sección (o las guarniciones): los que ya están aparecen tildados;
+   se tilda lo que se suma y se destilda lo que se saca. La categoría de la sección se puede cambiar
+   acá. Si falta un plato, se crea (queda también en el Stock, en esa categoría). */
 function dialogoAgregarACarta(secId){
   const s = cartaActual().secciones.find(x => x.id === secId); if(!s) return;
   const guarn = s.tipo === 'guarniciones';
   const idDe = (it) => it.menuId || it.productoId;
   const ya = s.items.map(idDe);
-  const todos = guarn ? state.productos.filter(p => p.activo && p.esGuarnicion) : state.menus.filter(m => m.activo).sort(ordenMenus);
-  const sugeridos = new Set(guarn ? [] : platosParaSeccion(s.titulo).map(m => m.id));
-  // arriba los que ya están (en su orden), después los de esta categoría y al final el resto
-  const orden = [...ya.map(id => todos.find(x => x.id === id)).filter(Boolean),
-    ...todos.filter(x => !ya.includes(x.id) && sugeridos.has(x.id)), ...todos.filter(x => !ya.includes(x.id) && !sugeridos.has(x.id))];
-  const fila = (x) => `<label class="check ca-op ${ya.includes(x.id) ? 'esta' : ''}" data-busca="${esc(normalizarNombre(x.nombre + ' ' + (x.categoria || '')))}">
-      <input type="checkbox" value="${x.id}" ${ya.includes(x.id) ? 'checked' : ''}><span class="t">${esc(x.nombre)}${!guarn && x.categoria ? `<small>${esc(x.categoria)}</small>` : ''}</span>
-      ${!guarn && x.precio != null ? `<b>${fmtPlata(x.precio)}</b>` : ''}</label>`;
+  let cat = guarn ? null : categoriaDeSeccion(s);
+  // los que ya están (aunque sean de otra categoría, para poder sacarlos) y después los de su categoría
+  const yaObjs = ya.map(id => guarn ? productoDe(id) : menuPorId(id)).filter(x => x && x.activo);
+  const deLaSeccion = () => guarn ? guarniciones() : cat ? platosParaCategoria(cat) : [];
+  // con lo que dice el stock: cuántos quedan (o "sin stock"), si se cuenta
+  const stockTxt = (x) => guarn ? (x.stock !== 0 ? `hay ${fmtNum(x.stock)} ${x.unidad}` : '') : textoDisponible(x);
+  const fila = (x, marcado) => { const st = stockTxt(x), det = [!guarn && cat && !mismaCategoria(x.categoria, cat) && x.categoria, st].filter(Boolean);
+    return `<label class="check ca-op" data-busca="${esc(normalizarNombre(x.nombre))}">
+      <input type="checkbox" value="${x.id}" ${marcado ? 'checked' : ''}><span class="t">${esc(x.nombre)}${det.length ? `<small>${esc(det.join(' · '))}</small>` : ''}</span>
+      ${!guarn && x.precio != null ? `<b>${fmtPlata(x.precio)}</b>` : ''}</label>`; };
+  const listaHtml = (marcados) => {
+    const ops = [...yaObjs, ...deLaSeccion().filter(x => !ya.includes(x.id))];
+    const vacio = guarn ? 'Todavía no hay guarniciones cargadas.' : cat ? `Todavía no hay platos en <b>${esc(cat)}</b>: creá el primero con "Crear plato nuevo".` : 'Elegí la categoría de esta sección para ver sus platos.';
+    return ops.map(x => fila(x, marcados.has(x.id))).join('') + (deLaSeccion().length ? '' : `<div class="calm">${icon('info')}<span>${vacio}</span></div>`);
+  };
   dialogo({
     titulo: `${guarn ? 'Guarniciones' : 'Platos'} de "${s.titulo}"`,
-    texto: `Tildá lo que va en esta sección y destildá lo que querés sacar. ${guarn ? '' : 'Arriba, los que ya están y los de esta categoría.'}`,
-    html: `<div class="pn-buscar" style="margin-bottom:8px">${icon('buscar', 15)}<input class="inp" id="ca-busca" placeholder="Buscar…" autocomplete="off"></div>
-      <div class="ca-lista">${orden.length ? orden.map(fila).join('') : `<div class="calm">${icon('info')} Todavía no hay ${guarn ? 'guarniciones' : 'platos'} cargados.</div>`}</div>`,
+    texto: guarn ? 'Tildá lo que va en esta sección y destildá lo que querés sacar.' : 'Aparecen solo los platos de su categoría. Tildá lo que va y destildá lo que querés sacar.',
+    html: `${guarn ? '' : `<div class="field ca-cat"><label for="ca-cat">Categoría de la sección</label>
+        <select id="ca-cat"><option value="">Elegí una categoría</option>${categorias().map(c => `<option value="${esc(c)}" ${cat && mismaCategoria(c, cat) ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>`}
+      <div class="pn-buscar" style="margin-bottom:8px">${icon('buscar', 15)}<input class="inp" id="ca-busca" placeholder="Buscar…" autocomplete="off"></div>
+      <div class="ca-lista" id="ca-lista">${listaHtml(new Set(ya))}</div>`,
     botones: [{ id: 'nuevo', label: guarn ? 'Crear guarnición nueva' : 'Crear plato nuevo' }, { id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Listo', clase: 'primary', domId: 'ca-agregar' }],
     onMount: (el) => {
-      const bq = el.querySelector('#ca-busca');
-      bq.addEventListener('input', () => { const q = normalizarNombre(bq.value); el.querySelectorAll('.ca-op').forEach(o => { o.hidden = !!q && !o.dataset.busca.includes(q); }); });
-      const btn = el.querySelector('#ca-agregar');
+      const bq = el.querySelector('#ca-busca'), lista = el.querySelector('#ca-lista'), btn = el.querySelector('#ca-agregar');
+      const tildados = () => [...lista.querySelectorAll('.ca-op input')].filter(x => x.checked).map(x => x.value);
+      const filtrar = () => { const q = normalizarNombre(bq.value); lista.querySelectorAll('.ca-op').forEach(o => { o.hidden = !!q && !o.dataset.busca.includes(q); }); };
       // el botón cuenta lo que cambia
       const contar = () => {
-        const tild = [...el.querySelectorAll('.ca-op input')].filter(x => x.checked).map(x => x.value);
-        const suma = tild.filter(id => !ya.includes(id)).length, saca = ya.filter(id => todos.some(x => x.id === id) && !tild.includes(id)).length;
+        const tild = tildados(), suma = tild.filter(id => !ya.includes(id)).length, saca = ya.filter(id => lista.querySelector(`.ca-op input[value="${id}"]`) && !tild.includes(id)).length;
         btn.textContent = suma || saca ? [suma && `Sumar ${suma}`, saca && `sacar ${saca}`].filter(Boolean).join(' y ') : 'Listo';
       };
-      el.querySelectorAll('.ca-op input').forEach(x => x.addEventListener('change', contar));
-      contar();
+      const bind = () => { lista.querySelectorAll('.ca-op input').forEach(x => x.addEventListener('change', contar)); filtrar(); contar(); };
+      bq.addEventListener('input', filtrar);
+      const sc = el.querySelector('#ca-cat');
+      if(sc) sc.addEventListener('change', () => { const marcados = new Set(tildados()); cat = sc.value || null; lista.innerHTML = listaHtml(marcados); bind(); });
+      bind();
     }
   }).then(async (r) => {
     if(!r) return;
     if(r.boton === 'nuevo'){
-      const sumar = (id) => cambiarCarta(c => { const x = c.secciones.find(y => y.id === secId); if(x) x.items.push(guarn ? { productoId: id } : { menuId: id }); });
-      if(!guarn){ abrirMenu(null, { categoria: normalizarNombre(s.titulo) === 'menu del dia' ? 'Del día' : s.titulo, alGuardar: (m) => sumar(m.id) }); return; }
+      const sumar = (id, catNueva) => cambiarCarta(c => { const x = c.secciones.find(y => y.id === secId); if(!x) return;
+        if(!guarn && !x.categoria && catNueva) x.categoria = catNueva;
+        x.items.push(guarn ? { productoId: id } : { menuId: id }); });
+      if(!guarn){ abrirPlato(null, { categoria: cat || '', alGuardar: (m) => sumar(m.id, m.categoria) }); return; }
       const q = await dialogo({ titulo: 'Guarnición nueva', html: `<div class="field"><label for="f-gn">Nombre${REQ}</label><input type="text" id="f-gn" placeholder="Ej: Calabaza al horno" autofocus></div>`,
         botones: [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Crear', clase: 'primary' }],
         onMount: (el) => { el._validar = () => el.querySelector('#f-gn').value.trim() ? true : marcarFalta(el.querySelector('#f-gn'), 'Poné el nombre.'); } });
@@ -250,13 +305,14 @@ function dialogoAgregarACarta(secId){
       }catch(e){ toastError('No se pudo crear la guarnición', e); }
       return;
     }
-    const tild = [...r.el.querySelectorAll('.ca-op input')].filter(x => x.checked).map(x => x.value);
-    const nuevos = tild.filter(id => !ya.includes(id));
+    const inputs = [...r.el.querySelectorAll('.ca-op input')], enLista = new Set(inputs.map(x => x.value));
+    const tild = inputs.filter(x => x.checked).map(x => x.value);
     cambiarCarta(c => {
       const x = c.secciones.find(y => y.id === secId); if(!x) return;
+      if(!guarn && cat) x.categoria = cat;
       // se sacan los destildados (los desactivados, que no están en la lista, quedan) y se suman los nuevos al final
-      x.items = x.items.filter(it => !todos.some(o => o.id === idDe(it)) || tild.includes(idDe(it)));
-      x.items.push(...nuevos.map(id => guarn ? { productoId: id } : { menuId: id }));
+      x.items = x.items.filter(it => !enLista.has(idDe(it)) || tild.includes(idDe(it)));
+      x.items.push(...tild.filter(id => !ya.includes(id)).map(id => guarn ? { productoId: id } : { menuId: id }));
     });
   });
 }

@@ -138,7 +138,7 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
       const platoHtml = (m) => {
         const n = st.lineas.filter(l => l.menuId === m.id).reduce((s, l) => s + l.cantidad, 0), p = precioPara(st.cli, m.id), disp = textoDisponible(m);
         return `<button class="pn-plato ${n ? 'en' : ''} ${esMenuDelDia(m) ? 'del-dia' : ''}" type="button" data-plato="${m.id}" title="Agregar ${esc(m.nombre)}">
-          <b>${esc(m.nombre)}</b><span>${p != null ? fmtPlata(p) : 'sin precio'}${disp ? ` · ${esc(disp)}` : ''}</span>${n ? `<i class="pn-n">${n}</i>` : ''}</button>`;
+          <b>${esc(m.nombre)}</b><span>${p != null ? fmtPlata(p) : 'sin precio'}${disp ? ` · <em class="${disp === 'sin stock' ? 'sin-stock' : ''}">${esc(disp)}</em>` : ''}</span>${n ? `<i class="pn-n">${n}</i>` : ''}</button>`;
       };
       // sin TACC: su categoría, o "sin TACC" en el nombre (como el "Menú sin TACC" del día)
       const sinTacc = (m) => normalizarNombre(m.categoria) === 'sin tacc' || /\bsin\s*tacc\b/i.test(m.nombre);
@@ -191,8 +191,7 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
         <div class="pn-der-total"><span>Total</span><b id="pn-total">${fmtPlata(total()) || '$ 0'}</b></div>`;
       const pasoQue = () => {
         const nom = st.cli.nombre.split(' ')[0], ant = previo(), delDia = menusDelDia(st.fecha).filter(menuDisponible);
-        const cats = [...new Set(menusDisponibles().map(m => m.categoria || 'Otros'))]
-          .sort((a, b) => ((a === 'Promociones') - (b === 'Promociones')) || ((b === 'Del día') - (a === 'Del día')) || a.localeCompare(b, 'es'));
+        const cats = [...new Set(menusDisponibles().map(m => m.categoria || 'Otros'))].sort(ordenPorCategoria);   // en el orden de las categorías
         if(st.cat === null) st.cat = delDia.length ? '__dia' : '';
         const u = st.ultimo, mismo = u && textoLineas(u.lineas) === textoLineas(st.lineas);
         return `<h2 class="pn-q">¿Qué pide ${esc(nom)}?</h2>

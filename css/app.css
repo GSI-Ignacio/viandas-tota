@@ -1336,9 +1336,12 @@ body{background:radial-gradient(1000px 520px at 8% -10%,var(--glow),transparent 
 .carta-agregar .help{margin:12px 0 0}
 .carta-estado{font-size:12.5px}
 /* elegir platos para la carta */
-.ca-lista{display:flex;flex-direction:column;max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:4px 10px}
-.check.ca-op{display:flex;align-items:center;gap:10px;padding:8px 2px;margin:0;border-bottom:1px solid var(--line)}
-.check.ca-op:last-child{border-bottom:0}
+.ca-lista{display:flex;flex-direction:column;gap:3px;max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:5px}
+.check.ca-op{display:flex;align-items:center;gap:10px;padding:9px 10px;margin:0;border-radius:9px;border:1px solid transparent;transition:background var(--t-fast) linear}
+.check.ca-op:hover{background:var(--hover)}
+/* tildado: toda la fila coloreada */
+.check.ca-op:has(input:checked){background:color-mix(in srgb,var(--accent) 15%,var(--panel));border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.check.ca-op:has(input:checked) .t{font-weight:600}
 .check.ca-op .t{flex:1;min-width:0;display:flex;flex-direction:column;color:var(--text)}
 .check.ca-op .t small{font-size:12px;color:var(--text-3)}
 .check.ca-op b{font-variant-numeric:tabular-nums}
@@ -1375,4 +1378,47 @@ body{background:radial-gradient(1000px 520px at 8% -10%,var(--glow),transparent 
 .carta.para-imagen .c-lista li::before{width:10px;height:10px}
 .carta.para-imagen .c-guarn{font-size:23px}
 .carta.para-imagen .c-pie{font-size:21px;margin-top:52px;padding-top:24px}
-.check.ca-op.esta .t{font-weight:600}
+
+/* Stock: una sola lista (platos, guarniciones y otros productos) */
+.stock-buscar{margin:0 0 10px;max-width:420px}
+.ptable tr.grp .grp-nota{font:400 12px/1.2 var(--font);letter-spacing:0;text-transform:none;color:var(--text-4)}
+.nuevo-ops{display:grid;gap:8px;margin-top:6px}
+.nuevo-op{display:grid;grid-template-columns:auto 1fr;column-gap:12px;row-gap:2px;align-items:center;text-align:left;padding:12px 14px;
+  border:1px solid var(--line-2);border-radius:12px;background:var(--panel);color:var(--text);cursor:pointer;font:inherit;
+  transition:background var(--t-fast) linear,border-color var(--t-fast) linear}
+.nuevo-op svg{grid-row:span 2;color:var(--accent)}
+.nuevo-op b{font-weight:600;font-size:15px}
+.nuevo-op span{color:var(--text-3);font-size:13px;line-height:1.35}
+.nuevo-op:hover,.nuevo-op:focus-visible{background:var(--hover);border-color:color-mix(in srgb,var(--accent) 50%,var(--line-2))}
+.pl-modo{flex-wrap:wrap}
+.pl-panel{margin-top:12px}
+.pl-panel > .help:first-child{margin:0 0 10px}
+.pn-plato span em{font-style:normal}
+.pn-plato span em.sin-stock{color:var(--bad-ink);font-weight:600}
+@media (max-width:640px){
+  .stock-t th:nth-child(4),.stock-t td:nth-child(4),.stock-t th:nth-child(5),.stock-t td:nth-child(5){display:none}
+  .stock-t th,.stock-t td{padding:0 8px}
+  .stock-t td:first-child{white-space:normal;padding-top:8px;padding-bottom:8px;height:auto}
+  .stock-t .pwho > svg,.stock-t .cargar-lbl{display:none}
+  .stock-t tr.grp td{padding-top:0;padding-bottom:0;height:34px}
+  .stock-t [data-cargar]{padding:0 10px}
+}
+
+/* Categorías de los platos */
+.cat-lista{display:flex;flex-direction:column;gap:6px}
+.cat-fila{display:grid;grid-template-columns:auto minmax(0,1fr) 12.5em auto;gap:8px;align-items:center}
+.cat-orden{display:inline-flex;gap:2px}
+.cat-n{font-size:12.5px;color:var(--text-3);white-space:nowrap;text-align:right;overflow:hidden;text-overflow:ellipsis}
+.cat-nueva{display:flex;gap:8px;margin-top:14px}
+.cat-nueva .inp{flex:1;min-width:0}
+.iconbtn.rojo{color:var(--bad-ink)}
+.iconbtn.rojo:hover{background:var(--bad-wash);color:var(--bad-ink)}
+.iconbtn:disabled{opacity:.35;pointer-events:none}
+.chip.sug{border-style:dashed;color:var(--text-3)}
+.ca-cat{margin-bottom:10px}
+@media (max-width:640px){
+  .cat-fila{grid-template-columns:auto minmax(0,1fr) auto}
+  .cat-n{grid-column:2;grid-row:2;margin-top:-4px;text-align:left}
+}
+.pcols.dos{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:880px){.pcols.dos{grid-template-columns:minmax(0,1fr)}}

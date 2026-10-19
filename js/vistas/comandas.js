@@ -258,7 +258,7 @@ function abrirComanda(c, fecha, turno = 'almuerzo'){
         <div id="com-lineas">${lineas.map((l, i) => lineaComandaHtml(l, i, fecha, c)).join('')}</div>
         <p class="muted com-vacio" id="com-vacio">Elegí el cliente: si tiene menú habitual, cantidad o precio, se cargan solos. Si no, agregá los platos.</p>
         ${editable ? `<button class="btn" type="button" id="com-agregar" style="margin-top:8px">${icon('plus', 13)} Agregar plato</button>` : ''}
-        ${!state.menus.length ? `<p class="muted" style="font-size:13px;margin-top:10px">Todavía no hay menús en la carta. ${esDueno() ? 'Cargalos en la pestaña Menú (podés pegar la carta de WhatsApp).' : ''}</p>` : ''}
+        ${!state.menus.length ? `<p class="muted" style="font-size:13px;margin-top:10px">Todavía no hay platos cargados. ${esDueno() ? 'Cargalos en la pestaña Stock (podés pegar la carta de WhatsApp).' : ''}</p>` : ''}
       </div>
       ${usaFormasPago() ? `<div class="psec"><h3>Cómo paga</h3>${formaPagoHtml('f-com-forma', ped && formaDePedido(ped) !== 'sin' ? formaDePedido(ped) : null, { compacto: true })}</div>` : ''}
       <p class="muted" style="font-size:13px;margin-top:14px">Los pedidos no usan créditos. Los productos de cada plato y la guarnición se descuentan del stock apenas lo guardás; si lo cancelás o lo borrás, vuelven.</p>`,

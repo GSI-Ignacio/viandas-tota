@@ -29,7 +29,7 @@ const state = {
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 15;
+const VERSION_BASE_APP = 17;
 
 /* ---------- formas de pago (desde la v14) ----------
    Un pedido se paga en efectivo, por transferencia o con Mercado Pago, o va "a cuenta" (paga después:
@@ -190,7 +190,8 @@ async function cargarDatos(){
     nombre: cfg.nombre || 'Mi Vianda', cocinaDireccion: cfg.cocina_direccion || '',
     cocinaLat: cfg.cocina_lat == null ? null : Number(cfg.cocina_lat), cocinaLng: cfg.cocina_lng == null ? null : Number(cfg.cocina_lng),
     alertaViandas: cfg.alerta_viandas ?? 3,
-    carta: cfg.carta || null
+    carta: cfg.carta || null,
+    categorias: Array.isArray(cfg.categorias) ? cfg.categorias : null
   };
   state.clientes = clientes.map(mapCliente);
   state.cadetes = (cadetes.data || []).map(mapCadete);
@@ -391,31 +392,121 @@ function porcionesDisponibles(m){
     return p && p.activo ? Math.floor(p.stock / (it.cantidad || 1)) : 0;
   })));
 }
-/* Cómo se arma un menú con el stock:
-   'listo'  → tiene su propio producto (el plato ya armado, con el mismo nombre);
-   'piezas' → se arma con otros productos (las piezas) que hay que juntar;
-   'sin'    → no tiene productos enlazados. */
-function armadoMenu(m){
-  if(!m || !m.items || !m.items.length) return 'sin';
-  if(m.items.length === 1){ const p = state.productos.find(x => x.id === m.items[0].productoId); if(p && normalizarNombre(p.nombre) === normalizarNombre(m.nombre)) return 'listo'; }
-  return 'piezas';
+/* ---------- un solo stock ----------
+   Los platos y el stock son una sola lista (pestaña Stock). Un plato lleva su propio stock: un
+   producto con su mismo nombre, que descuenta 1 por plato. Las promos y los combos descuentan de
+   otros productos ("2 Pizzas comunes" → 2 de Pizza común), y si un plato no descuenta nada todavía
+   no se cuenta: siempre aparece para pedir. */
+const productoDe = (id) => state.productos.find(p => p.id === id);
+function productoPropio(m){
+  if(!m || !m.items || m.items.length !== 1 || m.items[0].cantidad !== 1) return null;
+  const p = productoDe(m.items[0].productoId);
+  return p && normalizarNombre(p.nombre) === normalizarNombre(m.nombre) ? p : null;
 }
-/* Para un menú sin productos: la pieza del stock que aparece en su nombre ("Kipe con guarnición" → "Kipe"). */
-function piezaSugerida(m){
-  if(!m || (m.items && m.items.length)) return null;
-  const n = normalizarNombre(m.nombre);
-  return state.productos.filter(p => p.activo && !p.esGuarnicion && normalizarNombre(p.nombre) !== n && n.includes(normalizarNombre(p.nombre)))
-    .sort((a, b) => b.nombre.length - a.nombre.length)[0] || null;
+// 'propio' | 'otros' (promos y combos) | 'no' (no se cuenta)
+const stockDePlato = (m) => productoPropio(m) ? 'propio' : m && m.items && m.items.length ? 'otros' : 'no';
+// el plato de un producto (el activo, si hay varios con el mismo nombre)
+const platoDeProducto = (p) => state.menus.filter(m => productoPropio(m) === p).sort((a, b) => b.activo - a.activo)[0] || null;
+// otro plato activo (una promo, un combo) descuenta de ese producto
+const productoUsadoPorOtros = (pid, menuId) => state.menus.some(x => x.id !== menuId && x.activo && x.items.some(i => i.productoId === pid));
+// un producto con ese nombre que no es el stock de ningún plato (para no duplicarlo)
+function productoLibre(nombre){
+  const propios = new Set(state.menus.map(productoPropio).filter(Boolean).map(p => p.id)), n = normalizarNombre(nombre);
+  return state.productos.filter(p => !p.esGuarnicion && !propios.has(p.id) && normalizarNombre(p.nombre) === n).sort((a, b) => b.activo - a.activo)[0] || null;
+}
+/* Empieza a contar el stock de un plato: le crea su producto (o usa el que ya tiene su nombre). */
+async function crearStockPropio(m, { unidad = 'porciones', minimo = 0 } = {}){
+  const libre = productoLibre(m.nombre);
+  const p = libre ? (libre.activo || !m.activo ? libre : await guardarProducto(libre.id, { ...libre, activo: true }))
+                  : await guardarProducto(null, { nombre: m.nombre, unidad, minimo, porVianda: 0, activo: m.activo, esGuarnicion: false });
+  await guardarMenu(m.id, { ...m, items: [{ productoId: p.id, cantidad: 1 }] });
+  await recalcularPedidosPendientes([m.id]).catch(() => {});   // los pedidos que ya estaban descuentan de su stock
+  return productoDe(p.id) || p;
+}
+
+/* ---------- categorías de los platos ----------
+   Cada plato tiene una. Es una lista ordenada que se edita (Stock → Categorías): agregar, cambiar el
+   nombre, ordenar y borrar (sus platos pasan a otra). Ordena los platos en Stock y en los pedidos, y
+   cada sección de la carta es de una categoría. Se guarda con la configuración (desde la v17); hasta
+   que se guarde por primera vez, sale de los platos. */
+const usaCategorias = () => state.versionBase >= 17;
+const mismaCategoria = (a, b) => normalizarNombre(a) === normalizarNombre(b);
+// sin una lista guardada: primero las del día y al final las promociones; el resto, en orden alfabético
+const ordenCategorias = (a, b) => ((normalizarNombre(a) === 'promociones') - (normalizarNombre(b) === 'promociones'))
+  || ((normalizarNombre(b) === 'del dia') - (normalizarNombre(a) === 'del dia')) || a.localeCompare(b, 'es');
+function categorias(){
+  const guardadas = Array.isArray(state.config.categorias) ? state.config.categorias.map(c => String(c || '').trim()).filter(Boolean) : null;
+  const deMenus = [...new Set(state.menus.filter(m => m.activo && m.categoria).map(m => m.categoria.trim()))].sort(ordenCategorias);
+  const lista = [];
+  // las guardadas, en su orden; después las de platos que todavía no están (cargados con Pegar carta, por ejemplo)
+  for(const c of [...(guardadas || []), ...deMenus]) if(!lista.some(x => mismaCategoria(x, c))) lista.push(c);
+  return lista;
+}
+// el nombre como está en la lista (para juntar "Carnes" y "carnes")
+const nombreCategoria = (c) => c ? (categorias().find(x => mismaCategoria(x, c)) || c.trim()) : '';
+// en el orden de la lista; las que no están, al final
+function ordenPorCategoria(a, b){
+  const cs = categorias().map(normalizarNombre), i = (c) => { const k = cs.indexOf(normalizarNombre(c)); return k < 0 ? 999 : k; };
+  return i(a) - i(b) || String(a).localeCompare(String(b), 'es');
+}
+// todos los platos de una categoría, también los desactivados
+const platosDeCategoria = (cat) => state.menus.filter(m => m.categoria && mismaCategoria(m.categoria, cat));
+async function guardarCategorias(lista){
+  const limpia = [];
+  for(const c of lista.map(x => String(x || '').trim()).filter(Boolean)) if(!limpia.some(x => mismaCategoria(x, c))) limpia.push(c);
+  await guardarConfig({ categorias: limpia });
+  return limpia;
+}
+/* Agrega una categoría al final de la lista (si ya existe, devuelve esa). */
+async function agregarCategoria(nombre){
+  const n = String(nombre || '').trim(), ya = categorias().find(c => mismaCategoria(c, n));
+  if(ya || !n) return ya || '';
+  if(usaCategorias()) await guardarCategorias([...categorias(), n]);
+  return n;
+}
+/* Pasa los platos de una categoría a otra (todos, también los desactivados) y las secciones de la carta. */
+async function moverCategoria(de, a){
+  const ids = platosDeCategoria(de).map(m => m.id);
+  if(ids.length){
+    const { error } = await sb.from('menus').update({ categoria: a }).in('id', ids);
+    if(error) throw error;
+    state.menus.forEach(m => { if(ids.includes(m.id)) m.categoria = a; });
+  }
+  // en la carta: la sección pasa a la otra categoría; si esa ya tiene su sección, se juntan
+  const carta = state.config.carta;
+  if(carta && Array.isArray(carta.secciones) && carta.secciones.some(s => s.categoria && mismaCategoria(s.categoria, de))){
+    const c = cartaActual(), deCat = (s, x) => s.tipo !== 'guarniciones' && s.categoria && mismaCategoria(s.categoria, x);
+    const destino = c.secciones.find(s => deCat(s, a) && !deCat(s, de));
+    c.secciones = c.secciones.filter(s => {
+      if(!deCat(s, de)) return true;
+      if(destino){ destino.items.push(...s.items.filter(it => !destino.items.some(d => d.menuId === it.menuId))); return false; }
+      if(mismaCategoria(s.titulo, s.categoria)) s.titulo = a;
+      s.categoria = a;
+      return true;
+    });
+    await guardarCarta(c);
+  }
+}
+/* Cambiar el nombre (si ya hay otra con ese nombre, se juntan). */
+async function renombrarCategoria(vieja, nueva){
+  await moverCategoria(vieja, nueva);
+  return guardarCategorias(categorias().map(c => mismaCategoria(c, vieja) ? nueva : c));
+}
+/* Borrar una categoría: sus platos pasan a otra. */
+async function borrarCategoria(nombre, pasarA = null){
+  if(pasarA) await moverCategoria(nombre, pasarA);
+  const lista = (Array.isArray(state.config.categorias) ? state.config.categorias : categorias()).filter(c => !mismaCategoria(c, nombre));
+  return guardarCategorias(lista);
 }
 // texto de disponibilidad para listas y desplegables
 function textoDisponible(m){
   const n = porcionesDisponibles(m);
   if(n == null) return '';
   if(n === 0) return 'sin stock';
-  return armadoMenu(m) === 'piezas' ? `para armar (${n})` : `quedan ${n}`;
+  return stockDePlato(m) === 'otros' ? `alcanzan ${n}` : `quedan ${n}`;   // una promo: lo que alcanza con lo que usa
 }
-// disponible: activo y con stock (los que no descuentan stock se consideran disponibles)
-const menuDisponible = (m) => !!m && m.activo && (porcionesDisponibles(m) ?? 1) > 0;
+// disponible para pedir: activo. Sin stock también: se marca "sin stock" y, si lo piden, el stock queda en negativo (en rojo)
+const menuDisponible = (m) => !!m && m.activo;
 const menusDisponibles = () => state.menus.filter(menuDisponible);
 
 /* Precio de un plato para un cliente: su precio propio (sanatorio, empresas) o el de la carta. */
@@ -807,9 +898,11 @@ async function guardarComanda(c, fecha, turno, lineas, { formaPago } = {}){
 }
 
 /* Vuelve a calcular lo que descuentan los pedidos pendientes de hoy en adelante
-   (por ejemplo, después de cambiar los productos de un menú). */
-async function recalcularPedidosPendientes(){
-  const { error } = await sb.from('comandas').update({ estado: 'pendiente' }).eq('estado', 'pendiente').gte('fecha', todayStr());
+   (por ejemplo, después de cambiar el stock de un plato). menuIds: solo los de esos platos. */
+async function recalcularPedidosPendientes(menuIds = null){
+  let q = sb.from('comandas').update({ estado: 'pendiente' }).eq('estado', 'pendiente').gte('fecha', todayStr());
+  if(menuIds) q = q.in('menu_id', menuIds);
+  const { error } = await q;
   if(error) throw error;
   await recargarProductos();
 }
@@ -860,9 +953,9 @@ async function cargarCarta({ items, guarniciones: nombresG }){
     const mismos = state.menus.filter(m => normalizarNombre(m.nombre) === normalizarNombre(it.nombre));
     const ya = mismos.find(m => (m.categoria || '') === (it.categoria || '')) || mismos.find(m => m.activo) || mismos[0];
     let productoId = it.productoId || null;
-    if(it.crearProducto){
-      const existe = state.productos.find(p => normalizarNombre(p.nombre) === normalizarNombre(it.crearProducto));
-      productoId = existe ? existe.id : (await guardarProducto(null, { nombre: it.crearProducto, unidad: 'unidades', minimo: 0, porVianda: 0, activo: true })).id;
+    if(it.crearProducto){   // su propio stock: un producto con su mismo nombre
+      const existe = (ya && productoPropio(ya)) || productoLibre(it.crearProducto);
+      productoId = existe ? existe.id : (await guardarProducto(null, { nombre: it.crearProducto, unidad: 'porciones', minimo: 0, porVianda: 0, activo: it.activo, esGuarnicion: false })).id;
       if(!existe) res.productosNuevos++;
     }
     const componentes = productoId ? [{ productoId, cantidad: 1 }] : (ya ? ya.items : []);
@@ -876,7 +969,7 @@ async function cargarCarta({ items, guarniciones: nombresG }){
 async function eliminarMenu(m){
   const { error } = await sb.from('menus').delete().eq('id', m.id);
   if(error){
-    if(/foreign key|violates/i.test(error.message)) throw new Error('Ese menú ya se usó en comandas: desactivalo en lugar de eliminarlo, así se conserva el historial.');
+    if(/foreign key|violates/i.test(error.message)) throw new Error('Ese plato ya se usó en pedidos: desactivalo en lugar de eliminarlo, así se conserva el historial.');
     throw error;
   }
   state.menus = state.menus.filter(x => x.id !== m.id);
@@ -975,6 +1068,7 @@ async function guardarConfig(patch){
   if('cocinaLng' in patch) fila.cocina_lng = patch.cocinaLng;
   if('alertaViandas' in patch) fila.alerta_viandas = patch.alertaViandas;
   if('carta' in patch) fila.carta = patch.carta;
+  if('categorias' in patch) fila.categorias = patch.categorias;
   const { error } = await sb.from('negocio_config').upsert(fila, { onConflict: 'user_id' });
   if(error) throw error;
   Object.assign(state.config, patch);
@@ -1019,6 +1113,7 @@ async function eliminarProducto(p){
   const { error } = await sb.from('productos').delete().eq('id', p.id);
   if(error) throw error;
   state.productos = state.productos.filter(x => x.id !== p.id);
+  state.menus.forEach(m => { m.items = m.items.filter(i => i.productoId !== p.id); });   // en la base se borra en cascada
 }
 /* entrada suma, salida resta; un ajuste lleva la diferencia con signo (stock contado − stock actual). */
 async function registrarMovimiento(p, { tipo, cantidad, nota, fecha }){

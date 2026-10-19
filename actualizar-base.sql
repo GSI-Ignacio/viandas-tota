@@ -7,7 +7,7 @@
 -- vuelve a hacer y no se tocan los datos.
 --
 -- Cada actualización nueva se agrega al final de este archivo.
--- Adentro van, en orden, las versiones 5 a 15. Las anteriores (v2 a v4) ya están corridas;
+-- Adentro van, en orden, las versiones 5 a 17. Las anteriores (v2 a v4) ya están corridas;
 -- quedan en la carpeta migraciones/ como historial, junto con cada versión por separado.
 -- ============================================================
 
@@ -900,6 +900,99 @@ do $$ begin
 end $$;
 
 create or replace function version_base() returns integer language sql immutable as $$ select 15 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v16 — un solo stock
+--   Los platos y el stock pasan a ser una sola lista (pestaña Stock): cada
+--   plato lleva su propio stock, un producto con su mismo nombre. Esto ordena
+--   lo que ya estaba cargado, una sola vez: si un plato tiene un producto con
+--   su mismo nombre que no es de otro plato, pasa a descontar de ese (antes
+--   podía estar enlazado a otro producto, o a ninguno). Las promos y los
+--   combos (más de un producto, o más de 1 por plato) no se tocan. Los pedidos
+--   pendientes de esos platos, de hoy en adelante, vuelven a calcular lo que
+--   descuentan.
+-- ============================================================
+
+begin;
+
+do $$
+declare r comandas;
+begin
+  if exists (select 1 from app_migraciones where nombre = 'v16-un-stock') then return; end if;
+
+  create temp table v16_pares on commit drop as
+  with prod as (
+    select p.id, p.user_id, p.created_at,
+           regexp_replace(lower(translate(trim(p.nombre), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '\s+', ' ', 'g') as n
+    from productos p where not p.es_guarnicion
+  ), men as (
+    select m.id, m.user_id, m.activo, m.created_at,
+           regexp_replace(lower(translate(trim(m.nombre), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '\s+', ' ', 'g') as n
+    from menus m
+  ), it as (
+    select menu_id, count(*) as k, min(cantidad) as cant, (array_agg(producto_id))[1] as pid
+    from menu_productos group by menu_id
+  ), propio as (   -- los platos que ya tienen su stock propio, con ese producto
+    select men.id as menu_id, it.pid
+    from men join it on it.menu_id = men.id and it.k = 1 and it.cant = 1
+      join prod on prod.id = it.pid and prod.n = men.n
+  ), cand as (
+    select men.id as menu_id, prod.id as producto_id, men.user_id,
+           row_number() over (partition by prod.id order by men.activo desc, men.created_at desc) as r1,
+           row_number() over (partition by men.id order by prod.created_at) as r2
+    from men join prod on prod.user_id = men.user_id and prod.n = men.n
+      left join it on it.menu_id = men.id
+    where not exists (select 1 from propio where propio.menu_id = men.id)
+      and not exists (select 1 from propio where propio.pid = prod.id)
+      and (it.menu_id is null or (it.k = 1 and it.cant = 1))
+  )
+  select menu_id, producto_id, user_id from cand where r1 = 1 and r2 = 1;
+
+  delete from menu_productos where menu_id in (select menu_id from v16_pares);
+  insert into menu_productos (menu_id, producto_id, user_id, cantidad)
+    select menu_id, producto_id, user_id, 1 from v16_pares;
+  -- si el plato está activo, su stock también
+  update productos p set activo = true
+    from v16_pares x join menus m on m.id = x.menu_id
+    where p.id = x.producto_id and m.activo and not p.activo;
+
+  -- los pedidos pendientes de esos platos descuentan de su producto
+  for r in select c.* from comandas c
+             where c.estado = 'pendiente' and c.fecha >= hoy_ar() and c.menu_id in (select menu_id from v16_pares) loop
+    delete from movimientos where comanda_id = r.id;
+    perform descontar_comanda(r);
+  end loop;
+
+  insert into app_migraciones (nombre) values ('v16-un-stock');
+end $$;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 16 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v17 — categorías de los platos
+--   La lista de categorías (Carnes, Pollo, Bebidas…), en su orden, se guarda
+--   con la configuración del negocio. Se edita desde la app: agregar, cambiar
+--   el nombre, ordenar y borrar. Cada plato tiene una, y cada sección de la
+--   carta muestra solo los platos de su categoría.
+-- ============================================================
+
+begin;
+
+alter table negocio_config add column if not exists categorias jsonb;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 17 $$;
 grant execute on function version_base() to authenticated;
 
 notify pgrst, 'reload schema';
