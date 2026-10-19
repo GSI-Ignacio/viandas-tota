@@ -1129,7 +1129,7 @@ body{background:radial-gradient(1000px 520px at 8% -10%,var(--glow),transparent 
 .tag.fp-mercadopago{background:color-mix(in srgb,#00A6E0 16%,var(--panel));color:#0086B8;border-color:color-mix(in srgb,#00A6E0 45%,transparent)}
 :root[data-theme="dark"] .tag.fp-mercadopago{color:#5CCBF2}
 .tag.fp-cuenta{background:color-mix(in srgb,var(--skip) 18%,var(--panel));color:var(--skip-ink);border-color:color-mix(in srgb,var(--skip) 50%,transparent)}
-.formas-dia{margin:-6px 0 16px;flex-wrap:wrap}
+.formas-dia{margin:12px 0 18px;flex-wrap:wrap}
 .echip.fp-efectivo i{background:var(--ok)} .echip.fp-transferencia i{background:var(--pack)} .echip.fp-mercadopago i{background:#00A6E0}
 .echip.fp-cuenta i{background:var(--skip)} .echip.fp-sin i{background:var(--text-4)}
 
