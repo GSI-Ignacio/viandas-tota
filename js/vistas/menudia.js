@@ -186,7 +186,7 @@ async function abrirCartaDia(fecha){
           return guardarMenu(null, { nombre, descripcion: '', activo: true, precio: precio.value, categoria: categoriaDelDia(), llevaGuarnicion: false, items: [] });
         }, 'm');
         ap.addEventListener('click', ir);
-        inp.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); ir(); } });
+        [inp, precio].forEach(x => x.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); ir(); } }));
       }
       const ag = el.querySelector('#md-agregar-guarnicion');
       if(ag){

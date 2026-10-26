@@ -21,6 +21,7 @@ const state = {
   produccion: [],      // viandas preparadas por día (tabla stock)
   productos: [],       // con su stock actual
   menus: [],           // { id, nombre, descripcion, activo, items: [{ productoId, cantidad }] }
+  menusEliminados: [], // los platos eliminados que ya se usaron: solo para mostrar los pedidos viejos (desde la v22)
   cartaDia: [],        // { id, fecha, menuId, guarnicionId }: los menús del día y las guarniciones de cada fecha
   comandas: {},        // `${clienteId}|${fecha}|${turno}` → filas de la comanda (un menú por fila)
   comandasGeneradas: new Set(), // fechas cuyas comandas ya se trajeron en esta sesión
@@ -29,7 +30,7 @@ const state = {
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 21;
+const VERSION_BASE_APP = 22;
 
 /* ---------- formas de pago (desde la v14) ----------
    Un pedido se paga en efectivo, por transferencia o con Mercado Pago, o va "a cuenta" (paga después:
@@ -114,6 +115,7 @@ function armarMenus(menus, items){
   return menus.map(m => ({ id: m.id, nombre: m.nombre, descripcion: m.descripcion || '', activo: m.activo !== false,
     precio: m.precio == null ? null : Number(m.precio), categoria: m.categoria || '', llevaGuarnicion: !!m.lleva_guarnicion,
     creado: m.created_at || null,   // cuándo se cargó: el pedido nuevo muestra los platos en ese orden (el de la carta)
+    eliminado: !!m.eliminado_at,
     items: items.filter(i => i.menu_id === m.id).map(i => ({ productoId: i.producto_id, cantidad: Number(i.cantidad) || 0 })) }));
 }
 
@@ -214,7 +216,9 @@ async function cargarDatos(){
   state.produccion = (produccion.data || []).map(r => ({ fecha: r.fecha, preparadas: r.preparadas }));
   state.productos = (productos.data || []).map(mapProducto);
   state.miembros = miembros.data || [];
-  state.menus = armarMenus(menus.data || [], menuItems.data || []).sort(ordenMenus);
+  const todos = armarMenus(menus.data || [], menuItems.data || []);
+  state.menus = todos.filter(m => !m.eliminado).sort(ordenMenus);
+  state.menusEliminados = todos.filter(m => m.eliminado);
   state.comandas = {};
   guardarComandasEnEstado(comandas);
   state.cartaDia = carta.map(mapCartaDia);
@@ -304,7 +308,8 @@ function tieneRegistro(c, fecha){ const e = getEntrega(c.id, fecha); return !!(e
 
 /* ---------- comandas ---------- */
 const lineasComanda = (clienteId, fecha, turno) => state.comandas[claveT(clienteId, fecha, turno)] || [];
-const menuPorId = (id) => state.menus.find(m => m.id === id);
+// también los eliminados, para que los pedidos viejos sigan mostrando su plato
+const menuPorId = (id) => state.menus.find(m => m.id === id) || (state.menusEliminados || []).find(m => m.id === id);
 // los menús van siempre en orden alfabético, sin importar el precio; adelante solo los menús del día:
 // el "Menú del día" y el "Menú sin TACC" (el menú del día de los sin TACC)
 const MENUS_DEL_DIA = ['menu del dia', 'menu sin tacc', 'menu del dia sin tacc'];
@@ -753,7 +758,9 @@ async function ultimoPedido(c, fecha, mismoDia = false){
   const filas = (data || []).filter(x => x.fecha < fecha || x.estado === 'entregada');
   if(!filas.length) return null;
   const f = filas[0].fecha;
-  return { fecha: f, lineas: filas.filter(x => x.fecha === f).map(mapComanda) };
+  // un plato que se eliminó no se repite
+  const lineas = filas.filter(x => x.fecha === f).map(mapComanda).filter(l => !(menuPorId(l.menuId) || {}).eliminado);
+  return lineas.length ? { fecha: f, lineas } : null;
 }
 /* Los pedidos del cliente entre dos fechas, por día (para el resumen de la semana). */
 async function pedidosEntre(c, desde, hasta){
@@ -1059,14 +1066,39 @@ async function cargarCarta({ items, guarniciones: nombresG }){
   return res;
 }
 
+/* En cuántos pedidos está un plato, y cuántos de esos todavía no se entregaron (para avisar antes de eliminarlo). */
+async function usosDePlato(menuId){
+  const cuantos = (q) => q.then(({ count, error }) => { if(error) throw error; return count || 0; });
+  const base = () => sb.from('comandas').select('id', { count: 'exact', head: true }).eq('menu_id', menuId);
+  const [pedidos, pendientes] = await Promise.all([cuantos(base()), cuantos(base().eq('estado', 'pendiente').gte('fecha', todayStr()))]);
+  return { pedidos, pendientes };
+}
+/* Elimina un plato. Si ya está en pedidos, la base no deja borrarlo: queda marcado como eliminado (desde la v22),
+   desaparece de todas las listas y los pedidos viejos lo siguen mostrando con su nombre. En los dos casos sale del
+   menú habitual de los clientes, del menú del día de hoy en adelante y de la carta. */
 async function eliminarMenu(m){
   const { error } = await sb.from('menus').delete().eq('id', m.id);
   if(error){
-    if(/foreign key|violates/i.test(error.message)) throw new Error('Ese plato ya se usó en pedidos: desactivalo en lugar de eliminarlo, así se conserva el historial.');
-    throw error;
-  }
+    if(!/foreign key|violates/i.test(error.message)) throw error;
+    if(state.versionBase < 22) throw new Error('Ese plato ya se usó en pedidos: para poder eliminarlo hay que actualizar la base de datos (actualizar-base.sql). Mientras tanto, desactivalo.');
+    const hoy = todayStr();
+    for(const q of [sb.from('menus').update({ eliminado_at: new Date().toISOString(), activo: false }).eq('id', m.id),
+                    sb.from('clientes').update({ menu_almuerzo_id: null }).eq('menu_almuerzo_id', m.id),
+                    sb.from('clientes').update({ menu_cena_id: null }).eq('menu_cena_id', m.id),
+                    sb.from('carta_dia').delete().eq('menu_id', m.id).gte('fecha', hoy)]){
+      const r = await q;
+      if(r.error) throw r.error;
+    }
+    state.menusEliminados.push({ ...m, activo: false, eliminado: true });
+    state.cartaDia = state.cartaDia.filter(x => !(x.menuId === m.id && x.fecha >= hoy));
+  }else state.cartaDia = state.cartaDia.filter(x => x.menuId !== m.id);   // en la base se borra en cascada
   state.menus = state.menus.filter(x => x.id !== m.id);
   state.clientes.forEach(c => { if(c.menuAlmuerzoId === m.id) c.menuAlmuerzoId = null; if(c.menuCenaId === m.id) c.menuCenaId = null; });
+  const carta = cartaActual();
+  if(carta.secciones.some(s => s.items.some(it => it.menuId === m.id))){
+    carta.secciones.forEach(s => { s.items = s.items.filter(it => it.menuId !== m.id); });
+    await guardarCarta(carta);
+  }
 }
 
 async function guardarCliente(id, datos){

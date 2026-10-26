@@ -192,12 +192,15 @@ function opcionesMenu(sel, fecha){
   const activos = state.menus.filter(m => ok(m) && !idsDia.has(m.id));
   const cats = [...new Set(activos.map(m => m.categoria || ''))];
   const quedan = (m) => { const t = textoDisponible(m); return t ? ' · ' + t : ''; };
-  const opc = m => `<option value="${m.id}" ${m.id === sel ? 'selected' : ''}>${esc(m.nombre)}${m.precio != null ? ' · ' + fmtPlata(m.precio) : ''}${m.activo ? quedan(m) : ' (inactivo)'}</option>`;
+  const opc = m => `<option value="${m.id}" ${m.id === sel ? 'selected' : ''}>${esc(m.nombre)}${m.precio != null ? ' · ' + fmtPlata(m.precio) : ''}${m.eliminado ? ' (eliminado)' : m.activo ? quedan(m) : ' (inactivo)'}</option>`;
+  // un plato que se eliminó después de cargar el pedido sigue como estaba
+  const eliminado = sel && sel !== ELEGIR && !state.menus.some(m => m.id === sel) ? menuPorId(sel) : null;
   const agrupar = cats.length > 1 || delDia.length > 0;
   return (sel === ELEGIR ? `<option value="${ELEGIR}" selected hidden>Elegí un plato…</option>` : '')
     + (delDia.length ? `<optgroup label="${esc(etiquetaMenuDia(fecha))}">${delDia.map(opc).join('')}</optgroup>` : '')
     + cats.map(cat => { const ms = activos.filter(m => (m.categoria || '') === cat).map(opc).join('');
       return agrupar ? `<optgroup label="${esc(cat || 'Otros platos')}">${ms}</optgroup>` : ms; }).join('')
+    + (eliminado ? opc(eliminado) : '')
     + `<option value="" ${!sel ? 'selected' : ''}>Vianda sin menú</option>`;
 }
 const ELEGIR = '__elegir';   // línea nueva sin plato elegido todavía

@@ -7,12 +7,18 @@
    siempre muestra la última versión publicada.
    Los platos salen del Stock (la única lista, con su precio y su stock):
    tocar un plato abre su ficha, y uno nuevo queda también en el Stock.
+   En cada sección van siempre en orden alfabético; lo que está desactivado o
+   sin stock se ve apagado y no sale en la imagen.
 ============================================================= */
 let cartaGuardarT = null;
 
 // categorías que se ofrecen para sumar a la carta (si todavía no existen)
 const CATEGORIAS_SUGERIDAS = ['Entradas', 'Carnes', 'Pollo', 'Pastas', 'Tartas', 'Ensaladas', 'Bebidas', 'Postres', 'Promociones'];
 const nuevoIdSeccion = () => 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const alfabetico = (a, b) => a.localeCompare(b, 'es', { sensitivity: 'base', numeric: true });
+/* Por qué un plato (o una guarnición) no se ofrece: desactivado, o sin stock (0 o menos; lo que no se cuenta
+   nunca está sin stock). '' si se ofrece. */
+const motivoApagado = (x, guarn) => !x.activo ? 'desactivado' : (guarn ? x.stock <= 0 : porcionesDisponibles(x) === 0) ? 'sin stock' : '';
 // el título de una sección nueva: el de su categoría (la vieja "Del día" → "Menú del día")
 const tituloDeCategoria = (cat) => esCategoriaDelDia(cat) ? 'Menú del día' : cat;
 
@@ -50,7 +56,7 @@ async function alinearCartaConCategorias(){
         const k = sig ? lista.findIndex(x => mismaCategoria(x, sig)) : -1;
         if(k >= 0) lista.splice(k, 0, s.categoria); else lista.push(s.categoria);
       }
-      const ids = s.items.map(i => menuPorId(i.menuId)).filter(m => m && !mismaCategoria(m.categoria, s.categoria) && !(m.categoria && deSeccion(m.categoria))).map(m => m.id);
+      const ids = s.items.map(i => menuPorId(i.menuId)).filter(m => m && !m.eliminado && !mismaCategoria(m.categoria, s.categoria) && !(m.categoria && deSeccion(m.categoria))).map(m => m.id);
       if(ids.length){
         const { error } = await sb.from('menus').update({ categoria: s.categoria }).in('id', ids);
         if(error) throw error;
@@ -88,34 +94,39 @@ function nombreEnSeccion(m, s){
   return n || m.nombre;
 }
 function seccionHtml(s, { edita, imagen }){
-  const acts = (attr, extra = '') => edita ? `<span class="c-acts">${extra}
-      <button type="button" data-subir="${attr}" aria-label="Subir" title="Subir">${icon('up', 13)}</button>
-      <button type="button" data-bajar="${attr}" aria-label="Bajar" title="Bajar">${icon('down', 13)}</button>
+  // las secciones se suben y se bajan; los platos van solos en orden alfabético
+  const acts = (attr, { mover = true } = {}) => edita ? `<span class="c-acts">
+      ${mover ? `<button type="button" data-subir="${attr}" aria-label="Subir" title="Subir">${icon('up', 13)}</button>
+      <button type="button" data-bajar="${attr}" aria-label="Bajar" title="Bajar">${icon('down', 13)}</button>` : ''}
       <button type="button" class="rojo" data-quitar="${attr}" aria-label="Quitar de la carta" title="Quitar de la carta">${icon('x', 13)}</button></span>` : '';
   let cuerpo = '', precioSec = '';
   if(s.tipo === 'guarniciones'){
-    const gs = s.items.map((it, i) => ({ i, p: state.productos.find(x => x.id === it.productoId) })).filter(x => x.p && (!imagen || x.p.activo));
-    cuerpo = gs.length ? `<p class="c-guarn">${gs.map(x => `<span class="c-g ${x.p.activo ? '' : 'off'}">${esc(x.p.nombre)}${edita ? `<button type="button" class="c-gx" data-quitar="${s.id}:${x.i}" aria-label="Quitar ${esc(x.p.nombre)}" title="Quitar">${icon('x', 11)}</button>` : ''}</span>`).join('<span class="c-sep">·</span>')}</p>` : '';
+    const gs = s.items.map((it, i) => ({ i, p: productoDe(it.productoId) })).filter(x => x.p && (!imagen || !motivoApagado(x.p, true)))
+      .sort((a, b) => alfabetico(a.p.nombre, b.p.nombre));
+    cuerpo = gs.length ? `<p class="c-guarn">${gs.map(x => { const mot = motivoApagado(x.p, true);
+      return `<span class="c-g ${mot ? 'off' : ''}" ${mot ? `title="${mot === 'sin stock' ? 'Sin stock' : 'Desactivada'}: no sale en la imagen"` : ''}>${esc(x.p.nombre)}${edita && mot ? ` <small class="c-g-off">${mot === 'sin stock' ? 'sin stock' : 'desactivada'}</small>` : ''}${edita ? `<button type="button" class="c-gx" data-quitar="${s.id}:${x.i}" aria-label="Quitar ${esc(x.p.nombre)}" title="Quitar">${icon('x', 11)}</button>` : ''}</span>`; }).join('<span class="c-sep">·</span>')}</p>` : '';
   }else{
-    const ps = s.items.map((it, i) => ({ i, m: menuPorId(it.menuId) })).filter(x => x.m && (!imagen || x.m.activo));
-    const activos = ps.filter(x => x.m.activo && !esMenuDelDia(x.m));
+    const ps = s.items.map((it, i) => ({ i, m: menuPorId(it.menuId) })).filter(x => x.m && !x.m.eliminado && (!imagen || !motivoApagado(x.m)))
+      .sort((a, b) => alfabetico(nombreEnSeccion(a.m, s), nombreEnSeccion(b.m, s)));
+    const activos = ps.filter(x => !motivoApagado(x.m) && !esMenuDelDia(x.m));
     // todos al mismo precio (como el menú del día): el precio va una sola vez, al lado del título
-    const precios = new Set(ps.filter(x => x.m.activo).map(x => x.m.precio));
+    const precios = new Set(ps.filter(x => !motivoApagado(x.m)).map(x => x.m.precio));
     // el menú del día (y el sin TACC) tiene su precio: va una sola vez, al lado del título
     const cat = categoriaDeSeccion(s);
     const fijo = esCategoriaDelDia(cat) ? state.config.precioMenuDia : normalizarNombre(cat) === 'sin tacc' ? state.config.precioMenuSinTacc : null;
     const unico = fijo != null || (activos.length > 1 && precios.size === 1 && [...precios][0] != null);
     if(unico) precioSec = fmtPlata(fijo != null ? fijo : [...precios][0]);
-    const extra = (m) => `${m.llevaGuarnicion ? '<span class="c-gn"> + guarnición</span>' : ''}${m.descripcion ? `<small>${esc(m.descripcion)}</small>` : ''}`;
-    const off = (m) => m.activo ? '' : '<span class="c-off">desactivado: no sale en la imagen</span>';
+    const extra = (m) => `${m.llevaGuarnicion ? '<span class="c-gn"> +&nbsp;guarnición</span>' : ''}${m.descripcion ? `<small>${esc(m.descripcion)}</small>` : ''}`;
+    const off = (m) => { const mot = motivoApagado(m); return mot ? `<span class="c-off">${mot}: no sale en la imagen</span>` : ''; };
+    const cls = (m) => motivoApagado(m) ? 'off' : '';
     if(unico){
       const lista = ps.filter(x => !(esMenuDelDia(x.m) && x.m.activo));
-      cuerpo = `<ul class="c-lista">${lista.map(x => `<li class="${x.m.activo ? '' : 'off'}" data-item="${s.id}:${x.i}">
-          <span class="c-n" ${edita ? `data-editar="${x.m.id}" role="button" tabindex="0" title="Editar el plato"` : ''}>${esc(nombreEnSeccion(x.m, s))}${extra(x.m)}${off(x.m)}</span>${acts(`${s.id}:${x.i}`)}</li>`).join('')}</ul>`;
+      cuerpo = `<ul class="c-lista">${lista.map(x => `<li class="${cls(x.m)}" data-item="${s.id}:${x.i}">
+          <span class="c-n" ${edita ? `data-editar="${x.m.id}" role="button" tabindex="0" title="Editar el plato"` : ''}>${esc(nombreEnSeccion(x.m, s))}${extra(x.m)}${off(x.m)}</span>${acts(`${s.id}:${x.i}`, { mover: false })}</li>`).join('')}</ul>`;
     }else{
-      cuerpo = ps.map(x => `<div class="c-item ${x.m.activo ? '' : 'off'}" data-item="${s.id}:${x.i}">
+      cuerpo = ps.map(x => `<div class="c-item ${cls(x.m)}" data-item="${s.id}:${x.i}">
           <span class="c-n" ${edita ? `data-editar="${x.m.id}" role="button" tabindex="0" title="Editar el plato (precio, stock)"` : ''}>${esc(nombreEnSeccion(x.m, s))}${extra(x.m)}${off(x.m)}</span>
-          <span class="c-dots"></span><span class="c-p">${x.m.precio != null ? fmtPlata(x.m.precio) : ''}</span>${acts(`${s.id}:${x.i}`)}</div>`).join('');
+          <span class="c-dots"></span><span class="c-p">${x.m.precio != null ? fmtPlata(x.m.precio) : ''}</span>${acts(`${s.id}:${x.i}`, { mover: false })}</div>`).join('');
     }
   }
   if(imagen && !cuerpo) return '';
@@ -176,6 +187,7 @@ function renderCarta(main){
         ${sugeridas.map(t => `<button type="button" class="chip sug" data-sec-nueva="${esc(t)}" title="Crea la categoría ${esc(t)}">+ ${esc(t)}</button>`).join('')}
         <button type="button" class="chip sug" data-sec-nueva="">Otra…</button></div>
       <p class="help">Cada sección es una categoría y muestra solo sus platos del Stock: los que ya tenés se cargan solos, y después sacás o sumás los que quieras.
+        Van siempre en orden alfabético, y lo que no tiene stock (0 o menos) aparece desactivado y no sale en la imagen.
         Tocá un plato para cambiar su precio, y los títulos para escribir encima. <button type="button" class="pn-link" id="editar-categorias">Editar categorías</button></p>
     </section>` : ''}
   </div></div>`;
@@ -219,12 +231,11 @@ function bindCarta(main){
     toast(items.length ? `<b>Guarniciones</b> agregada con ${plural(items.length, 'guarnición', 'guarniciones')}.` : '<b>Guarniciones</b> agregada: sumale con "Agregar guarnición".');
   });
   const ec = main.querySelector('#editar-categorias'); if(ec) ec.addEventListener('click', () => abrirCategorias());
-  // subir, bajar y quitar: secciones ("id") o platos ("id:posición")
-  const mover = (ref, paso) => cambiarCarta(c => {
-    const [id, i] = ref.split(':');
-    const lista = i === undefined ? c.secciones : seccion(c, id).items, k = i === undefined ? c.secciones.findIndex(s => s.id === id) : Number(i), j = k + paso;
-    if(j < 0 || j >= lista.length) return;
-    [lista[k], lista[j]] = [lista[j], lista[k]];
+  // subir y bajar las secciones; quitar secciones ("id") o platos ("id:posición")
+  const mover = (id, paso) => cambiarCarta(c => {
+    const k = c.secciones.findIndex(s => s.id === id), j = k + paso;
+    if(k < 0 || j < 0 || j >= c.secciones.length) return;
+    [c.secciones[k], c.secciones[j]] = [c.secciones[j], c.secciones[k]];
   });
   main.querySelectorAll('[data-subir]').forEach(b => b.addEventListener('click', () => mover(b.dataset.subir, -1)));
   main.querySelectorAll('[data-bajar]').forEach(b => b.addEventListener('click', () => mover(b.dataset.bajar, 1)));
@@ -258,13 +269,13 @@ function dialogoAgregarACarta(secId){
   const yaObjs = ya.map(id => guarn ? productoDe(id) : menuPorId(id)).filter(x => x && x.activo);
   const deLaSeccion = () => guarn ? guarniciones() : cat ? platosParaCategoria(cat) : [];
   // con lo que dice el stock: cuántos quedan (o "sin stock"), si se cuenta
-  const stockTxt = (x) => guarn ? (x.stock !== 0 ? `hay ${fmtNum(x.stock)} ${x.unidad}` : '') : textoDisponible(x);
+  const stockTxt = (x) => guarn ? (x.stock > 0 ? `hay ${fmtNum(x.stock)} ${x.unidad}` : 'sin stock') : textoDisponible(x);
   const fila = (x, marcado) => { const st = stockTxt(x), det = [!guarn && cat && !mismaCategoria(x.categoria, cat) && x.categoria, st].filter(Boolean);
     return `<label class="check ca-op" data-busca="${esc(normalizarNombre(x.nombre))}">
       <input type="checkbox" value="${x.id}" ${marcado ? 'checked' : ''}><span class="t">${esc(x.nombre)}${det.length ? `<small>${esc(det.join(' · '))}</small>` : ''}</span>
       ${!guarn && x.precio != null ? `<b>${fmtPlata(x.precio)}</b>` : ''}</label>`; };
   const listaHtml = (marcados) => {
-    const ops = [...yaObjs, ...deLaSeccion().filter(x => !ya.includes(x.id))];
+    const ops = [...yaObjs, ...deLaSeccion().filter(x => !ya.includes(x.id))].sort((a, b) => alfabetico(a.nombre, b.nombre));
     const vacio = guarn ? 'Todavía no hay guarniciones cargadas.' : cat ? `Todavía no hay platos en <b>${esc(cat)}</b>: creá el primero con "Crear plato nuevo".` : 'Elegí la categoría de esta sección para ver sus platos.';
     return ops.map(x => fila(x, marcados.has(x.id))).join('') + (deLaSeccion().length ? '' : `<div class="calm">${icon('info')}<span>${vacio}</span></div>`);
   };
@@ -313,7 +324,7 @@ function dialogoAgregarACarta(secId){
     cambiarCarta(c => {
       const x = c.secciones.find(y => y.id === secId); if(!x) return;
       if(!guarn && cat) x.categoria = cat;
-      // se sacan los destildados (los desactivados, que no están en la lista, quedan) y se suman los nuevos al final
+      // se sacan los destildados (los desactivados, que no están en la lista, quedan) y se suman los nuevos (se ven en orden alfabético)
       x.items = x.items.filter(it => !enLista.has(idDe(it)) || tild.includes(idDe(it)));
       x.items.push(...tild.filter(id => !ya.includes(id)).map(id => guarn ? { productoId: id } : { menuId: id }));
     });

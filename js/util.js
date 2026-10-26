@@ -281,6 +281,16 @@ function quitarCapa(el){ const i = capas.findIndex(c => c.el === el); if(i >= 0)
 document.addEventListener('keydown', (e) => {
   if(e.key === 'Escape' && cerrarCapaSuperior()){ e.preventDefault(); }
 });
+/* Enter en un campo = el botón principal de la ventana (Guardar, Crear…), si está prendido. Salvo en los
+   buscadores y en los campos que ya usan el Enter para otra cosa (esos lo frenan con preventDefault). */
+function enterGuarda(e, boton){
+  if(e.key !== 'Enter' || e.defaultPrevented || e.isComposing || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+  const t = e.target;
+  if(!(t instanceof HTMLInputElement) || t.readOnly || ['button', 'submit', 'reset', 'file', 'range', 'color', 'search'].includes(t.type) || t.closest('.pn-buscar')) return;
+  if(!boton || boton.disabled || boton.classList.contains('busy')) return;
+  e.preventDefault();
+  boton.click();
+}
 
 /* Ventana de detalle. html: contenido; onMount(el) para enganchar eventos.
    ancho: 'grande' (horizontal, las secciones .psec se reparten en columnas) o 'medio'.
@@ -320,6 +330,7 @@ function abrirPanel({ titulo = '', html, pie = '', onMount, onClose, ancho = 'gr
   const cerrar = () => cerrarPanel();
   el.querySelector('[data-cerrar]').addEventListener('click', cerrar);
   scrim.addEventListener('click', cerrar);
+  el.addEventListener('keydown', (e) => enterGuarda(e, el.querySelector('.pfoot button.btn.primary')));
   peekActual = { el, scrim, onClose, prevFocus: document.activeElement };
   abrirCapa(el, cerrar);
   if(onMount) onMount(el);
@@ -355,6 +366,7 @@ function dialogo({ titulo, texto = '', html = '', botones = [{ id:'ok', label:'A
       fin(b.dataset.b === 'cancelar' ? null : { boton: b.dataset.b, el });
     }));
     scrim.addEventListener('click', () => fin(null));
+    el.addEventListener('keydown', (e) => enterGuarda(e, el.querySelector('.foot button.btn.primary[data-b]')));
     abrirCapa(el, () => fin(null));
     if(onMount) onMount(el);
     // botón principal apagado hasta que esté lo necesario (y, si edita algo, hasta que haya cambios)

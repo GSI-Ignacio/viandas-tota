@@ -308,14 +308,8 @@ function abrirProducto(id, seguido = null, { guarnicion = false } = {}){
       };
       if(guardar) guardar.addEventListener('click', () => crear(false));
       if(guardarOtro) guardarOtro.addEventListener('click', () => crear(true));
-      if(guardarOtro){
-        // Enter en un campo = crear y seguir con el próximo
-        el.querySelectorAll('.pbody input:not([type="checkbox"])').forEach(x => x.addEventListener('keydown', (e) => {
-          if(e.key === 'Enter' && !guardarOtro.disabled){ e.preventDefault(); crear(true); }
-        }));
-        // la ventana se reusa: arriba de todo y el cursor en el nombre
-        if(seguido) setTimeout(() => { el.querySelector('.pbody').scrollTop = 0; nombreInp.focus(); }, 30);
-      }
+      // la ventana se reusa: arriba de todo y el cursor en el nombre
+      if(guardarOtro && seguido) setTimeout(() => { el.querySelector('.pbody').scrollTop = 0; nombreInp.focus(); }, 30);
       // se vende solo: queda como plato con este mismo stock (si ya hay un plato con su nombre, se le enlaza)
       const aPlato = el.querySelector('#prod-a-plato');
       if(aPlato) aPlato.addEventListener('click', async () => {
@@ -342,9 +336,9 @@ function abrirProducto(id, seguido = null, { guarnicion = false } = {}){
 }
 
 /* ---------- un plato: lo que se vende y su stock, en una sola ventana ----------
-   El stock de un plato es el suyo propio (un producto con su mismo nombre: cada pedido descuenta 1),
-   el de otros productos (promos y combos: "2 Pizzas comunes" descuenta 2 de Pizza común) o ninguno
-   (no se cuenta: siempre aparece para pedir).
+   El stock de un plato se cuenta (el suyo propio: un producto con su mismo nombre, cada pedido descuenta 1),
+   sale de otros productos (promos y combos: "2 Pizzas comunes" descuenta 2 de Pizza común) o no se cuenta
+   (siempre aparece para pedir).
    seguido = al cargar varios uno atrás de otro: los que ya se crearon, la categoría y la unidad del último. */
 function componentesTxt(m){
   return m.items.map(i => { const p = productoDe(i.productoId); return p ? `${fmtNum(i.cantidad)} ${p.nombre}` : null; }).filter(Boolean).join(' + ') || 'Sin productos';
@@ -403,34 +397,33 @@ function abrirPlato(id, { categoria = '', alGuardar = null, seguido = null } = {
       </div>`;
   const secStock = `<div class="psec"><h3>Stock</h3>
         <div class="seg pl-modo" role="group" aria-label="Cómo se cuenta el stock">
-          <button type="button" data-modo="propio" aria-pressed="${modo0 === 'propio'}">Su propio stock</button>
-          <button type="button" data-modo="otros" aria-pressed="${modo0 === 'otros'}">De otros productos</button>
-          <button type="button" data-modo="no" aria-pressed="${modo0 === 'no'}">No se cuenta</button></div>
+          <button type="button" data-modo="propio" aria-pressed="${modo0 === 'propio'}"><b>Cuento cuántos hay</b><span>Cargo cuántos tengo y cada pedido descuenta 1</span></button>
+          <button type="button" data-modo="otros" aria-pressed="${modo0 === 'otros'}"><b>Promo o combo</b><span>No tiene stock propio: descuenta de lo que lleva</span></button>
+          <button type="button" data-modo="no" aria-pressed="${modo0 === 'no'}"><b>No lo cuento</b><span>Siempre se puede pedir</span></button></div>
         <input type="hidden" id="f-pl-modo" value="${modo0}">
         <div class="pl-panel ${modo0 === 'propio' ? '' : 'hidden'}" data-panel="propio">
-          ${libre ? `<p class="help">Usa <b>${esc(libre.nombre)}</b>, que ya está en el stock (hay ${fmtNum(libre.stock)} ${esc(libre.unidad)}). Cada pedido descuenta 1.</p>` : ''}
+          ${libre ? `<p class="help">Usa <b>${esc(libre.nombre)}</b>, que ya está en el stock (hay ${fmtNum(libre.stock)} ${esc(libre.unidad)}).</p>` : ''}
           <div class="frow">
             <div class="field"><label for="f-pl-unidad">Se cuenta en</label><select id="f-pl-unidad">${unidadesHtml(unidad)}</select>
               <input type="text" id="f-pl-unidad-otra" class="hidden" placeholder="Escribí la unidad" style="margin-top:6px"></div>
             <div class="field"><label for="f-pl-minimo">Avisarme cuando queden menos de</label><input type="number" id="f-pl-minimo" min="0" step="any" value="${propio ? propio.minimo : libre ? libre.minimo : 0}"></div>
           </div>
-          ${propio ? '<p class="help">Cada pedido descuenta 1. Si se termina, se sigue pudiendo pedir: aparece «sin stock» y queda en negativo, en rojo. Para sumar, usá <b>Entrada</b> o <b>Cargar stock</b>.</p>'
-            : !libre ? `<div class="field"><label for="f-pl-inicial">¿Cuántos hay ahora?</label><input type="number" id="f-pl-inicial" min="0" step="any" value="" placeholder="0" style="max-width:140px">
-              <div class="help">Cada pedido descuenta 1. Si se termina, se sigue pudiendo pedir: aparece «sin stock» y queda en negativo, en rojo.</div></div>` : ''}
+          ${!propio && !libre ? `<div class="field"><label for="f-pl-inicial">¿Cuántos hay ahora?</label><input type="number" id="f-pl-inicial" min="0" step="any" value="" placeholder="0" style="max-width:140px"></div>` : ''}
+          <p class="help">Con 0 o menos, en la carta aparece desactivado (sin stock); igual se puede pedir y queda en negativo, en rojo.${propio ? ' Para sumar, usá <b>Entrada</b> o <b>Cargar stock</b>.' : ''}</p>
         </div>
         <div class="pl-panel ${modo0 === 'otros' ? '' : 'hidden'}" data-panel="otros">
-          <p class="help">Para promos y combos: lo que descuenta cada plato. Ej: <i>2 Pizzas comunes</i> → 2 de Pizza común.</p>
+          <p class="help">Elegí qué lleva y cuánto de cada cosa. Ej: <i>2 Pizzas comunes</i> descuenta 2 de Pizza común.</p>
           <div id="pl-comps">${comps.map(filaComponenteHtml).join('')}</div>
           <button class="btn" type="button" id="pl-agregar" style="margin-top:4px">${icon('plus', 13)} Otro producto</button></div>
         <div class="pl-panel ${modo0 === 'no' ? '' : 'hidden'}" data-panel="no">
-          <p class="help">No se lleva la cuenta: siempre aparece para pedir. Para empezar a contarlo, elegí <b>Su propio stock</b> o cargale stock desde la lista.</p></div>
+          <p class="help">No se lleva la cuenta de cuántos hay: siempre se puede pedir y en la carta nunca aparece sin stock.</p></div>
       </div>`;
   const secMovs = propio ? `<div class="psec"><h3>Movimientos</h3><div id="p-movs"><div class="skel" style="width:50%"></div></div></div>` : '';
   const secBorrar = m && !lectura ? `<div class="psec"><button class="btn lg danger" type="button" id="borrar-plato">${icon('borrar', 14)} Eliminar plato</button></div>` : '';
   const cuerpo = lectura ? `<dl class="props" style="margin-top:16px"><dt>Categoría</dt><dd>${esc(d.categoria || '—')}</dd>
           <dt>Guarnición</dt><dd>${d.llevaGuarnicion ? 'Se elige en cada pedido' : 'No lleva'}</dd>
           ${d.descripcion ? `<dt>Descripción</dt><dd>${esc(d.descripcion)}</dd>` : ''}
-          <dt>Stock</dt><dd>${propio ? `Propio, en ${esc(propio.unidad)}` : modo0 === 'otros' ? `Usa ${esc(componentesTxt(d))}` : 'No se cuenta'}</dd></dl>` + secMovs
+          <dt>Stock</dt><dd>${propio ? `Se cuenta, en ${esc(propio.unidad)}` : modo0 === 'otros' ? `Promo o combo: usa ${esc(componentesTxt(d))}` : 'No se cuenta'}</dd></dl>` + secMovs
     : m ? `<div class="pcols ${propio ? '' : 'dos'}" style="margin-top:22px"><div class="pcol">${secPlato}</div><div class="pcol">${secStock}${secBorrar}</div>${propio ? `<div class="pcol">${secMovs}</div>` : ''}</div>`
     : secPlato + secStock;
   abrirPanel({
@@ -490,7 +483,7 @@ function abrirPlato(id, { categoria = '', alGuardar = null, seguido = null } = {
         if(existente()) return marcarFalta(nombreInp, `Ya hay un plato ${esc(existente().nombre)}: abrilo para cambiarlo.`);
         if(modoInp.value === 'otros'){
           const its = leerComps(), primero = cont.querySelector('select');
-          if(!its.length) return marcarFalta(primero, 'Elegí de qué producto descuenta, o cambiá a "No se cuenta".');
+          if(!its.length) return marcarFalta(primero, 'Elegí de qué descuenta, o cambiá a «No lo cuento».');
           if(its.some((x, i) => its.findIndex(y => y.productoId === x.productoId) !== i)) return marcarFalta(primero, 'Hay un producto repetido: juntá las cantidades en una sola fila.');
         }
         return true;
@@ -542,7 +535,11 @@ function abrirPlato(id, { categoria = '', alGuardar = null, seguido = null } = {
       const borrar = el.querySelector('#borrar-plato');
       if(borrar) borrar.addEventListener('click', async () => {
         const conStock = propio && !productoUsadoPorOtros(propio.id, m.id);
-        if(!(await confirmar('Eliminar plato', `¿Eliminar <b>${esc(m.nombre)}</b>?${conStock ? ' También se borra su stock y sus movimientos.' : ''}`, { ok: 'Eliminar', peligro: true }))) return;
+        const usos = await usosDePlato(m.id).catch(() => null);
+        const enPedidos = !usos ? '' : usos.pendientes ? ` Está en ${plural(usos.pedidos, 'pedido')} (${plural(usos.pendientes, 'sin entregar', 'sin entregar')}): siguen como están, con este nombre.`
+          : usos.pedidos ? ` Ya está en ${plural(usos.pedidos, 'pedido')}: ahí sigue figurando con este nombre.` : '';
+        if(!(await confirmar('Eliminar plato', `¿Eliminar <b>${esc(m.nombre)}</b>?${enPedidos}${conStock ? ' También se borra su stock y sus movimientos.' : ''}`
+          + (usos && usos.pedidos ? '<br><br>Si solo está mal escrito, cancelá y cambiale el nombre: se corrige también en los pedidos.' : ''), { ok: 'Eliminar', peligro: true }))) return;
         try{
           await eliminarMenu(m);
           if(conStock) await eliminarProducto(propio).catch(() => {});
@@ -770,9 +767,9 @@ function abrirPegarCarta(texto, resultado){
             <td><input type="checkbox" data-c="guarnicion" ${it.llevaGuarnicion ? 'checked' : ''} aria-label="Lleva guarnición"></td>
             <td><input type="checkbox" data-c="activo" ${it.activo ? 'checked' : ''} aria-label="Activo"></td>
             <td><select class="inp sm" data-c="producto" aria-label="Producto del stock" style="width:200px">
-              <option value="">${existe(it) ? 'Como está' : 'No se cuenta'}</option>
-              <option value="__crear" ${sugerido(it) === '__crear' ? 'selected' : ''}>Su propio stock</option>
-              <optgroup label="Usa otro producto">${prods.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</optgroup></select></td></tr>`).join('')}</tbody></table></div></div>
+              <option value="">${existe(it) ? 'Como está' : 'No lo cuento'}</option>
+              <option value="__crear" ${sugerido(it) === '__crear' ? 'selected' : ''}>Cuento cuántos hay</option>
+              <optgroup label="Promo o combo: descuenta de">${prods.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</optgroup></select></td></tr>`).join('')}</tbody></table></div></div>
         ${leida.guarniciones.length ? `<div class="psec phero"><h3>Guarniciones <span class="n">se agregan como productos del stock</span></h3>
           <div class="days" style="gap:8px">${leida.guarniciones.map((g, i) => `<label class="check" style="border:1px solid var(--line-2);border-radius:8px;padding:6px 10px">
             <input type="checkbox" data-g="${i}" checked> ${esc(g)}</label>`).join('')}</div></div>` : ''}`}`,

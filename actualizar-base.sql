@@ -7,7 +7,7 @@
 -- vuelve a hacer y no se tocan los datos.
 --
 -- Cada actualización nueva se agrega al final de este archivo.
--- Adentro van, en orden, las versiones 5 a 21. Las anteriores (v2 a v4) ya están corridas;
+-- Adentro van, en orden, las versiones 5 a 22. Las anteriores (v2 a v4) ya están corridas;
 -- quedan en la carpeta migraciones/ como historial, junto con cada versión por separado.
 -- ============================================================
 
@@ -1363,6 +1363,25 @@ end $$;
 grant execute on function ruta_link(text) to anon, authenticated;
 
 create or replace function version_base() returns integer language sql immutable as $$ select 21 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v22 — se pueden eliminar los platos que ya se usaron en pedidos
+--   No se borran de la base: quedan marcados como eliminados (con la fecha),
+--   desaparecen de todas las listas y los pedidos viejos los siguen mostrando
+--   con su nombre. El que no se usó nunca se sigue borrando del todo.
+-- ============================================================
+
+begin;
+
+alter table menus add column if not exists eliminado_at timestamptz;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 22 $$;
 grant execute on function version_base() to authenticated;
 
 notify pgrst, 'reload schema';
