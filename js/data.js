@@ -30,7 +30,7 @@ const state = {
 
 class MigracionPendiente extends Error {}
 /* Versión de la base que espera esta app (la última de actualizar-base.sql). */
-const VERSION_BASE_APP = 22;
+const VERSION_BASE_APP = 23;
 
 /* ---------- formas de pago (desde la v14) ----------
    Un pedido se paga en efectivo, por transferencia o con Mercado Pago, o va "a cuenta" (paga después:
@@ -111,11 +111,14 @@ function guardarComandasEnEstado(filas, fechas){
     (state.comandas[k] = state.comandas[k] || []).push(x);
   }
 }
+// una promoción: cuántos menús entran y de qué categoría ('' = cualquier plato); null si es un plato
+const promoDeFila = (r) => r.promo_cantidad ? { cantidad: Number(r.promo_cantidad), categoria: r.promo_categoria || '' } : null;
 function armarMenus(menus, items){
   return menus.map(m => ({ id: m.id, nombre: m.nombre, descripcion: m.descripcion || '', activo: m.activo !== false,
     precio: m.precio == null ? null : Number(m.precio), categoria: m.categoria || '', llevaGuarnicion: !!m.lleva_guarnicion,
     creado: m.created_at || null,   // cuándo se cargó: el pedido nuevo muestra los platos en ese orden (el de la carta)
     eliminado: !!m.eliminado_at,
+    promo: promoDeFila(m),
     items: items.filter(i => i.menu_id === m.id).map(i => ({ productoId: i.producto_id, cantidad: Number(i.cantidad) || 0 })) }));
 }
 
@@ -528,10 +531,34 @@ function textoDisponible(m){
   if(n === 0) return 'sin stock';
   return stockDePlato(m) === 'otros' ? `alcanzan ${n}` : `quedan ${n}`;   // una promo: lo que alcanza con lo que usa
 }
-// disponible para pedir: activo (y que no sea el viejo plato "Menú del día"). Sin stock también: se marca "sin stock"
-// y, si lo piden, el stock queda en negativo (en rojo)
-const menuDisponible = (m) => !!m && m.activo && !esMenuDelDia(m);
+// disponible para pedir: activo (y que no sea el viejo plato "Menú del día" ni una promoción, que no se pide sola).
+// Sin stock también: se marca "sin stock" y, si lo piden, el stock queda en negativo (en rojo)
+const menuDisponible = (m) => !!m && m.activo && !esMenuDelDia(m) && !esPromo(m);
 const menusDisponibles = () => state.menus.filter(menuDisponible);
+
+/* ---------- promociones (desde la v23) ----------
+   Una promoción es un plato de la carta con un precio por varios menús que el cliente elige:
+   "2 menús del día por $ 13.000". No se pide sola: al cargar el pedido se eligen sus menús, y cada
+   uno va con su parte del precio y descuenta su propio stock (y su guarnición). */
+const usaPromos = () => state.versionBase >= 23;
+const esPromo = (m) => !!(m && m.promo);
+const promosDisponibles = () => state.menus.filter(m => m.activo && esPromo(m));
+// los menús que se pueden elegir: los de su categoría (los del menú del día, los asignados a ese día) o cualquiera
+function menusParaPromo(promo, fecha){
+  const cat = promo.promo.categoria;
+  if(!cat) return menusDisponibles();
+  if(esCategoriaDelDia(cat)){ const d = menusDelDia(fecha).filter(menuDisponible); if(d.length) return d; }
+  return menusDisponibles().filter(m => m.categoria && mismaCategoria(m.categoria, cat));
+}
+// lo que entra, para mostrarlo: "2 menús del día a elección", "3 a elección de Tartas", "2 platos a elección"
+function textoPromo(promo){
+  const n = promo.promo.cantidad, c = promo.promo.categoria;
+  return !c ? `${plural(n, 'plato', 'platos')} a elección` : esCategoriaDelDia(c) ? `${plural(n, 'menú del día', 'menús del día')} a elección` : `${n} a elección de ${c}`;
+}
+// la categoría donde van las promociones: "Promociones" (o la que ya empiece con "Promo")
+const categoriaPromos = () => categorias().find(c => /^promo/.test(normalizarNombre(c))) || 'Promociones';
+// la parte del precio de la promo que lleva cada menú
+const precioEnPromo = (promo) => promo.precio == null ? null : Math.round(promo.precio / promo.promo.cantidad * 100) / 100;
 
 /* Precio de un plato para un cliente: su precio propio (sanatorio, empresas) o el de la carta. */
 function precioPara(c, menuId){
@@ -974,9 +1001,14 @@ async function guardarComanda(c, fecha, turno, lineas, { formaPago } = {}){
     if(!(l.cantidad > 0)) continue;
     const g = l.menuId && menuPorId(l.menuId) && menuPorId(l.menuId).llevaGuarnicion ? (l.guarnicionId || null) : null;
     const k = clv({ menuId: l.menuId, guarnicionId: g });
-    if(nuevas.has(k)){ nuevas.get(k).cantidad += l.cantidad; if(l.nota) nuevas.get(k).nota = [nuevas.get(k).nota, l.nota].filter(Boolean).join(' · '); }
-    else nuevas.set(k, { menuId: l.menuId || null, guarnicionId: g, cantidad: Math.trunc(l.cantidad), nota: (l.nota || '').trim(),
-                         precio: l.precio != null && l.precio !== '' && !isNaN(Number(l.precio)) ? Number(l.precio) : precioPara(c, l.menuId) });
+    const precio = l.precio != null && l.precio !== '' && !isNaN(Number(l.precio)) ? Number(l.precio) : precioPara(c, l.menuId);
+    const n = nuevas.get(k);
+    if(n){
+      // el mismo plato con dos precios (uno en una promo y otro suelto): queda el promedio, así el total no cambia
+      if(n.precio != null && precio != null && precio !== n.precio) n.precio = Math.round((n.precio * n.cantidad + precio * l.cantidad) / (n.cantidad + l.cantidad) * 100) / 100;
+      n.cantidad += l.cantidad; if(l.nota) n.nota = [n.nota, l.nota].filter(Boolean).join(' · ');
+    }
+    else nuevas.set(k, { menuId: l.menuId || null, guarnicionId: g, cantidad: Math.trunc(l.cantidad), nota: (l.nota || '').trim(), precio });
   }
   for(const a of actuales){
     const n = nuevas.get(clv(a));
@@ -1021,6 +1053,8 @@ async function guardarMenu(id, datos){
   const fila = { nombre: datos.nombre, descripcion: datos.descripcion || '', activo: datos.activo,
                  precio: datos.precio === '' || datos.precio == null ? null : Number(datos.precio), categoria: (datos.categoria || '').trim(),
                  lleva_guarnicion: !!datos.llevaGuarnicion };
+  // una promoción (desde la v23); si datos no trae 'promo', no se toca
+  if('promo' in datos && usaPromos()){ fila.promo_cantidad = datos.promo ? datos.promo.cantidad : null; fila.promo_categoria = datos.promo ? datos.promo.categoria || null : null; }
   const { data, error } = id ? await sb.from('menus').update(fila).eq('id', id).select().single()
                              : await sb.from('menus').insert(fila).select().single();
   if(error) throw error;
@@ -1033,7 +1067,7 @@ async function guardarMenu(id, datos){
   }
   const m = { id: data.id, nombre: data.nombre, descripcion: data.descripcion || '', activo: data.activo !== false, items: items.map(i => ({ ...i })),
               precio: data.precio == null ? null : Number(data.precio), categoria: data.categoria || '', llevaGuarnicion: !!data.lleva_guarnicion,
-              creado: data.created_at || null };
+              creado: data.created_at || null, promo: promoDeFila(data) };
   const i = state.menus.findIndex(x => x.id === m.id);
   if(i >= 0) state.menus[i] = m; else state.menus.push(m);
   state.menus.sort(ordenMenus);

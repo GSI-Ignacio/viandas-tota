@@ -70,13 +70,49 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
       // delDia = elegido como menú del día: va con el precio del menú (salvo que el cliente tenga el suyo)
       const agregarPlato = (id, delDia = false) => {
         const m = menuPorId(id); if(!m) return;
-        const ya = st.lineas.find(l => l.menuId === id && !!l.delDia === delDia);
+        const ya = st.lineas.find(l => l.menuId === id && !!l.delDia === delDia && !l.promo);
         // si ese día hay una sola guarnición, va esa (el menú del día: milanesa con ensalada)
         const gs = guarnicionesDelDia(st.fecha);
         const propio = st.cli && st.cli.tipo !== 'casual' && st.cli.precioVianda != null;
         if(ya) ya.cantidad++;
         else st.lineas.push(Object.assign(linea({ menuId: id, guarnicionId: m.llevaGuarnicion && gs.length === 1 ? gs[0].id : null,
           cantidad: st.lineas.length ? 1 : cantidadPorDefecto(st.cli), precio: delDia && !propio ? precioMenuDia(m) : null }), { delDia }));
+        st.porDefecto = false;
+        pintarPedido();
+      };
+      // una promoción: se eligen sus menús (se pueden repetir) y cada uno va con su parte del precio.
+      // Sus líneas van juntas, bajo la promo, y se sacan juntas.
+      const agregarPromo = async (promo) => {
+        const n = promo.promo.cantidad, ops = menusParaPromo(promo, st.fecha), cuenta = {};
+        if(!ops.length){ toast(`No hay platos disponibles para <b>${esc(promo.nombre)}</b>.`, 'err'); return; }
+        const r = await dialogo({
+          titulo: `${promo.nombre} · ${fmtPlata(promo.precio) || 'sin precio'}`,
+          texto: n === 1 ? 'Elegí el menú.' : `Elegí los ${n} menús: se pueden repetir.`,
+          html: `<div class="pr-ops">${ops.map(m => { const disp = textoDisponible(m);
+            return `<div class="pr-op" data-m="${m.id}"><span class="t"><b>${esc(m.nombre)}</b>${disp ? `<small class="${disp === 'sin stock' ? 'sin-stock' : ''}">${esc(disp)}</small>` : ''}</span>
+              <span class="pn-cant"><button type="button" class="iconbtn" data-menos aria-label="Uno menos de ${esc(m.nombre)}">${icon('menos', 14)}</button>
+                <b class="pr-n" aria-live="polite">0</b><button type="button" class="iconbtn" data-mas aria-label="Uno más de ${esc(m.nombre)}">${icon('plus', 14)}</button></span></div>`; }).join('')}</div>`,
+          botones: [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Agregar al pedido', clase: 'primary', domId: 'pr-agregar' }],
+          onMount: (el) => {
+            const elegidos = () => Object.values(cuenta).reduce((s, x) => s + x, 0);
+            const pintarCuenta = () => el.querySelectorAll('.pr-op').forEach(o => {
+              const k = cuenta[o.dataset.m] || 0;
+              o.querySelector('.pr-n').textContent = k; o.classList.toggle('on', k > 0);
+              o.querySelector('[data-menos]').disabled = !k; o.querySelector('[data-mas]').disabled = elegidos() >= n;
+            });
+            el.querySelectorAll('.pr-op').forEach(o => {
+              o.querySelector('[data-mas]').addEventListener('click', () => { if(elegidos() < n){ cuenta[o.dataset.m] = (cuenta[o.dataset.m] || 0) + 1; pintarCuenta(); } });
+              o.querySelector('[data-menos]').addEventListener('click', () => { if(cuenta[o.dataset.m]){ cuenta[o.dataset.m]--; pintarCuenta(); } });
+            });
+            el._validar = () => elegidos() === n ? true : marcarFalta(null, n - elegidos() === 1 ? 'Falta elegir 1 menú.' : `Faltan elegir ${n - elegidos()} menús.`);
+            pintarCuenta();
+          }
+        });
+        if(!r) return;
+        const inst = ++pnSeq, precio = precioEnPromo(promo), gs = guarnicionesDelDia(st.fecha);
+        for(const m of ops) if(cuenta[m.id] > 0)
+          st.lineas.push(Object.assign(linea({ menuId: m.id, guarnicionId: m.llevaGuarnicion && gs.length === 1 ? gs[0].id : null, cantidad: cuenta[m.id], precio }),
+            { promo: { inst, id: promo.id, nombre: promo.nombre } }));
         st.porDefecto = false;
         pintarPedido();
       };
@@ -151,59 +187,79 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
         return `<button class="pn-plato ${n ? 'en' : ''} ${idsDia().has(m.id) ? 'del-dia' : ''}" type="button" data-plato="${m.id}" title="Agregar ${esc(m.nombre)}">
           <b>${esc(m.nombre)}</b><span>${p != null ? fmtPlata(p) : 'sin precio'}${disp ? ` · <em class="${disp === 'sin stock' ? 'sin-stock' : ''}">${esc(disp)}</em>` : ''}</span>${n ? `<i class="pn-n">${n}</i>` : ''}</button>`;
       };
+      // una promo: cuántas veces está en el pedido
+      const vecesPromo = (id) => new Set(st.lineas.filter(l => l.promo && l.promo.id === id).map(l => l.promo.inst)).size;
+      const promoHtml = (m) => {
+        const n = vecesPromo(m.id);
+        return `<button class="pn-plato pn-promo ${n ? 'en' : ''}" type="button" data-promo="${m.id}" title="Agregar la promo ${esc(m.nombre)}">
+          <b>${icon('promo', 13)} ${esc(m.nombre)}</b><span>${m.precio != null ? fmtPlata(m.precio) : 'sin precio'} · ${esc(textoPromo(m))}</span>${n ? `<i class="pn-n">${n}</i>` : ''}</button>`;
+      };
       // sin TACC: su categoría, o "sin TACC" en el nombre (como el "Menú sin TACC" del día)
       const sinTacc = esSinTacc;
       const platosHtml = () => {
         const q = normalizarNombre(st.buscaPlato), dia = idsDia();
-        let ms = menusDisponibles();
-        if(q) ms = ms.filter(m => normalizarNombre(m.nombre + ' ' + (m.categoria || '')).includes(q));
-        else if(st.cat === '__dia') ms = opcionesDia();
-        else if(normalizarNombre(st.cat) === 'sin tacc') ms = ms.filter(sinTacc);
-        else if(st.cat) ms = ms.filter(m => (m.categoria || 'Otros') === st.cat && !sinTacc(m));
+        let ms = menusDisponibles(), ps = promosDisponibles();
+        // las promociones: las de esa categoría, o las que son de platos de esa categoría
+        const promoDe = (c) => (m) => (m.categoria && mismaCategoria(m.categoria, c)) || (m.promo.categoria && mismaCategoria(m.promo.categoria, c));
+        if(q){ ms = ms.filter(m => normalizarNombre(m.nombre + ' ' + (m.categoria || '')).includes(q)); ps = ps.filter(m => normalizarNombre(m.nombre + ' ' + (m.categoria || '')).includes(q)); }
+        else if(st.cat === '__dia'){ ms = opcionesDia(); ps = ps.filter(m => esCategoriaDelDia(m.promo.categoria)); }
+        else if(normalizarNombre(st.cat) === 'sin tacc'){ ms = ms.filter(sinTacc); ps = ps.filter(promoDe(st.cat)); }
+        else if(st.cat){ ms = ms.filter(m => (m.categoria || 'Otros') === st.cat && !sinTacc(m)); ps = ps.filter(promoDe(st.cat)); }
         // los del menú de ese día primero; después, en orden alfabético, sin importar el precio
         ms = ms.slice().sort((a, b) => (dia.has(b.id) - dia.has(a.id)) || ordenMenus(a, b));
-        if(!ms.length) return `<div class="calm">${icon('buscar')} ${q ? `No hay platos con «${esc(st.buscaPlato)}».` : 'No hay platos disponibles en esta categoría.'}</div>`;
+        if(!ms.length && !ps.length) return `<div class="calm">${icon('buscar')} ${q ? `No hay platos con «${esc(st.buscaPlato)}».` : 'No hay platos disponibles en esta categoría.'}</div>`;
+        const promos = ps.length ? (ms.length ? `<div class="pn-grupo">${icon('promo', 12)} Promociones</div>` : '') + ps.map(promoHtml).join('') : '';
         // lo que tiene TACC y lo que no, separados
         const con = ms.filter(m => !sinTacc(m)), sin = ms.filter(sinTacc);
-        if(!con.length || !sin.length) return ms.map(platoHtml).join('');
+        if(!con.length || !sin.length) return ms.map(platoHtml).join('') + promos;
         return `<div class="pn-grupo">Con TACC</div>${con.map(platoHtml).join('')}
-          <div class="pn-grupo sin-tacc">${icon('check', 12)} Sin TACC</div>${sin.map(platoHtml).join('')}`;
+          <div class="pn-grupo sin-tacc">${icon('check', 12)} Sin TACC</div>${sin.map(platoHtml).join('')}${promos}`;
       };
       // cada plato del pedido, lo justo: nombre, cantidad y subtotal; el precio, la guarnición y la nota se abren al tocarlos
+      // "× $ 7.000 c/u"; en una promo, "2 × $ 6.500" (la cantidad la fija la promo)
+      const cuTxt = (l) => `${l.promo ? l.cantidad + ' ' : ''}× ${precioDe(l) != null ? fmtPlata(precioDe(l)) : 'sin precio'}${l.promo ? '' : ' c/u'}`;
       const lineaHtml = (l) => {
-        const m = menuPorId(l.menuId), p = precioDe(l), g = llevaG(l), ui = l.ui || (l.ui = {});
+        const m = menuPorId(l.menuId), p = precioDe(l), g = llevaG(l), ui = l.ui || (l.ui = {}), enPromo = !!l.promo;
         const guarnicion = !g ? ''
           : l.guarnicionId && !ui.g ? `<div class="pn-g-elegida">Con <b>${esc(nombreGuarnicion(l.guarnicionId))}</b>
               <button type="button" class="pn-link" data-cambiar-g>Cambiar</button></div>`
           : `<div class="pn-guarn ${l.guarnicionId ? '' : 'falta'}"><span>${l.guarnicionId ? 'Cambiar guarnición:' : 'Elegí la guarnición:'}</span>
               ${opcionesG().map(x => `<button type="button" class="chip ${l.guarnicionId === x.id ? 'on' : ''}" data-guarn="${x.id}">${esc(x.nombre)}</button>`).join('')}
-              ${l.guarnicionId ? `<button type="button" class="pn-link" data-otra-g title="El mismo plato, con otra guarnición">+ otra guarnición para algunos</button>` : ''}</div>`;
-        return `<div class="pn-linea" data-l="${l.id}">
+              ${l.guarnicionId && (!enPromo || l.cantidad > 1) ? `<button type="button" class="pn-link" data-otra-g title="El mismo plato, con otra guarnición">+ otra guarnición para algunos</button>` : ''}</div>`;
+        return `<div class="pn-linea ${enPromo ? 'en-promo' : ''}" data-l="${l.id}">
           <div class="pn-l1"><b>${esc(m ? m.nombre : 'Vianda sin menú')}${l.delDia ? ' <span class="tag plain">menú del día</span>' : ''}</b>
             <button type="button" class="pn-sub pn-precio-txt" data-sub data-editar-precio title="Cambiar el precio de este plato">${fmtPlata(l.cantidad * (p || 0)) || '$ 0'}</button>
-            <button class="btn pn-quitar" type="button" data-quitar aria-label="Quitar ${esc(m ? m.nombre : 'el plato')}" title="Quitar este plato">${icon('borrar', 13)}<span>Quitar</span></button></div>
+            ${enPromo ? '' : `<button class="btn pn-quitar" type="button" data-quitar aria-label="Quitar ${esc(m ? m.nombre : 'el plato')}" title="Quitar este plato">${icon('borrar', 13)}<span>Quitar</span></button>`}</div>
           <div class="pn-l2">
-            <span class="pn-cant"><button type="button" class="iconbtn" data-menos aria-label="Uno menos" ${l.cantidad <= 1 ? 'disabled' : ''}>${icon('menos', 14)}</button>
+            ${enPromo ? '' : `<span class="pn-cant"><button type="button" class="iconbtn" data-menos aria-label="Uno menos" ${l.cantidad <= 1 ? 'disabled' : ''}>${icon('menos', 14)}</button>
               <input type="number" class="inp sm" data-cant min="1" step="1" value="${l.cantidad}" aria-label="Cantidad">
-              <button type="button" class="iconbtn" data-mas aria-label="Uno más">${icon('plus', 14)}</button></span>
+              <button type="button" class="iconbtn" data-mas aria-label="Uno más">${icon('plus', 14)}</button></span>`}
             ${ui.precio ? `<span class="pn-precio">Precio por plato $ <input type="number" class="inp sm" data-precio min="0" step="100" value="${p ?? ''}" placeholder="precio" aria-label="Precio por plato"></span>`
-              : l.cantidad > 1 ? `<span class="pn-cu" data-cu>× ${p != null ? fmtPlata(p) : 'sin precio'} c/u</span>` : ''}
+              : l.cantidad > 1 || enPromo ? `<span class="pn-cu" data-cu>${cuTxt(l)}</span>` : ''}
           </div>
           ${guarnicion}
           ${ui.nota || l.nota ? `<input type="text" class="inp sm pn-nota-in" data-nota value="${esc(l.nota)}" placeholder="Nota para la cocina (sin sal, dieta…)" aria-label="Nota">`
             : `<button type="button" class="pn-link" data-agregar-nota>+ Nota para la cocina</button>`}
         </div>`;
       };
+      // el total de una promo del pedido (sus líneas)
+      const totalPromo = (inst) => st.lineas.filter(x => x.promo && x.promo.inst === inst).reduce((s, x) => s + x.cantidad * (precioDe(x) || 0), 0);
+      const promoCabHtml = (l) => `<div class="pn-promo-h">${icon('promo', 14)}<b>${esc(l.promo.nombre)}</b><span class="pn-promo-p" data-promo-total="${l.promo.inst}">${fmtPlata(totalPromo(l.promo.inst)) || '$ 0'}</span>
+          <button class="btn pn-quitar" type="button" data-quitar-promo="${l.promo.inst}" aria-label="Quitar la promo ${esc(l.promo.nombre)}" title="Quitar la promo entera">${icon('borrar', 13)}<span>Quitar</span></button></div>`;
+      const lineasHtml = () => st.lineas.map((l, i) => {
+        const ant = st.lineas[i - 1], nueva = l.promo && !(ant && ant.promo && ant.promo.inst === l.promo.inst);
+        return (nueva ? promoCabHtml(l) : '') + lineaHtml(l);
+      }).join('');
       const columnaPedido = () => `<div class="pn-der-h"><b>Pedido de ${esc(st.cli.nombre.split(' ')[0])}</b><span class="sp"></span>
           ${st.lineas.length ? `<span class="muted">${plural(platos(), 'plato')}</span>` : ''}</div>
         ${st.porDefecto ? '<p class="pn-nota">Lo de siempre: cambialo si hoy pide otra cosa.</p>' : ''}
-        <div class="pn-der-lineas">${st.lineas.length ? st.lineas.map(lineaHtml).join('')
+        <div class="pn-der-lineas">${st.lineas.length ? lineasHtml()
           : `<div class="pn-vacio">${icon('comanda', 18)}<span>Todavía no elegiste platos.<br>Tocá los de la izquierda y van apareciendo acá.</span></div>`}</div>
         <div class="pn-der-total"><span>Total</span><b id="pn-total">${fmtPlata(total()) || '$ 0'}</b></div>`;
       const pasoQue = () => {
         const nom = st.cli.nombre.split(' ')[0], ant = previo(), delDia = opcionesDia();
         // en el orden de las categorías; la del menú del día va aparte, con los platos del día
-        const cats = [...new Set(menusDisponibles().map(m => m.categoria || 'Otros'))].filter(c => !esCategoriaDelDia(c)).sort(ordenPorCategoria);
+        const cats = [...new Set([...menusDisponibles(), ...promosDisponibles()].map(m => m.categoria || 'Otros'))].filter(c => !esCategoriaDelDia(c)).sort(ordenPorCategoria);
         if(st.cat === null) st.cat = delDiaAsignados().length ? '__dia' : '';
         const u = st.ultimo, mismo = u && textoLineas(u.lineas) === textoLineas(st.lineas);
         return `<h2 class="pn-q">¿Qué pide ${esc(nom)}?</h2>
@@ -233,7 +289,7 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
           <div class="pn-resumen">
             <div class="pn-r-fila">${avatarHtml(st.cli.nombre, 36)}<div class="t"><b>${esc(st.cli.nombre)}</b><small>Para ${esc(cuando())}</small></div>
               <button class="btn quiet" type="button" data-ir="quien">Cambiar</button></div>
-            <div class="pn-r-lineas">${st.lineas.map(l => `<div><span>${l.cantidad}× ${esc(textoLinea({ ...l, guarnicionId: llevaG(l) ? l.guarnicionId : null }))}${l.nota ? ` <small class="muted">· ${esc(l.nota)}</small>` : ''}</span>
+            <div class="pn-r-lineas">${st.lineas.map(l => `<div><span>${l.cantidad}× ${esc(textoLinea({ ...l, guarnicionId: llevaG(l) ? l.guarnicionId : null }))}${l.promo ? ` <small class="muted">· ${esc(l.promo.nombre)}</small>` : ''}${l.nota ? ` <small class="muted">· ${esc(l.nota)}</small>` : ''}</span>
                 <b>${fmtPlata(l.cantidad * (precioDe(l) || 0)) || '$ 0'}</b></div>`).join('')}
               <button class="btn quiet" type="button" data-ir="que">Cambiar platos</button></div>
             <div class="pn-r-total"><span>Total · ${plural(platos(), 'plato')}</span><b>${fmtPlata(total()) || '$ 0'}</b></div>
@@ -275,19 +331,21 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
         der.innerHTML = columnaPedido();
         der.scrollTop = scroll;
         bindPedido();
-        raiz.querySelectorAll('#pn-grid [data-plato]').forEach(b => {
-          const n = st.lineas.filter(l => l.menuId === b.dataset.plato).reduce((s, l) => s + l.cantidad, 0);
+        const marcar = (b, n) => {
           b.classList.toggle('en', n > 0);
           let i = b.querySelector('.pn-n');
           if(n && !i){ i = document.createElement('i'); i.className = 'pn-n'; b.appendChild(i); }
           if(i){ if(n) i.textContent = n; else i.remove(); }
-        });
+        };
+        raiz.querySelectorAll('#pn-grid [data-plato]').forEach(b => marcar(b, st.lineas.filter(l => l.menuId === b.dataset.plato).reduce((s, l) => s + l.cantidad, 0)));
+        raiz.querySelectorAll('#pn-grid [data-promo]').forEach(b => marcar(b, vecesPromo(b.dataset.promo)));
         actualizarPie();
       };
       const pintarGrid = () => {
         const grid = raiz.querySelector('#pn-grid'); if(!grid) return;
         grid.innerHTML = platosHtml();
         grid.querySelectorAll('[data-plato]').forEach(b => b.addEventListener('click', () => agregarPlato(b.dataset.plato, st.cat === '__dia' && !st.buscaPlato)));
+        grid.querySelectorAll('[data-promo]').forEach(b => b.addEventListener('click', () => agregarPromo(menuPorId(b.dataset.promo))));
         raiz.querySelectorAll('[data-cat]').forEach(c => c.classList.toggle('on', !st.buscaPlato && c.dataset.cat === st.cat));
       };
       const bindPedido = () => {
@@ -295,16 +353,21 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
           const l = st.lineas.find(x => x.id === Number(row.dataset.l)); if(!l) return;
           const repintarFila = () => {
             row.querySelector('[data-sub]').textContent = fmtPlata(l.cantidad * (precioDe(l) || 0)) || '$ 0';
-            const cu = row.querySelector('[data-cu]'); if(cu) cu.textContent = `× ${precioDe(l) != null ? fmtPlata(precioDe(l)) : 'sin precio'} c/u`;
+            const cu = row.querySelector('[data-cu]'); if(cu) cu.textContent = cuTxt(l);
+            const tp = l.promo && raiz.querySelector(`[data-promo-total="${l.promo.inst}"]`); if(tp) tp.textContent = fmtPlata(totalPromo(l.promo.inst)) || '$ 0';
             const t = raiz.querySelector('#pn-total'); if(t) t.textContent = fmtPlata(total()) || '$ 0';
             actualizarPie();
           };
-          row.querySelector('[data-quitar]').addEventListener('click', () => { st.lineas = st.lineas.filter(x => x !== l); st.porDefecto = false; pintarPedido(); });
-          row.querySelector('[data-menos]').addEventListener('click', () => { if(l.cantidad > 1){ l.cantidad--; pintarPedido(); } });
-          row.querySelector('[data-mas]').addEventListener('click', () => { l.cantidad++; pintarPedido(); });
-          const ci = row.querySelector('[data-cant]');
-          ci.addEventListener('input', () => { const n = Math.trunc(Number(ci.value)); if(n >= 1){ l.cantidad = n; repintarFila(); } });
-          ci.addEventListener('change', () => pintarPedido());
+          // las de una promo no tienen estos: la cantidad la fija la promo, y se saca entera
+          const q = row.querySelector('[data-quitar]');
+          if(q) q.addEventListener('click', () => { st.lineas = st.lineas.filter(x => x !== l); st.porDefecto = false; pintarPedido(); });
+          const menos = row.querySelector('[data-menos]'), mas = row.querySelector('[data-mas]'), ci = row.querySelector('[data-cant]');
+          if(menos) menos.addEventListener('click', () => { if(l.cantidad > 1){ l.cantidad--; pintarPedido(); } });
+          if(mas) mas.addEventListener('click', () => { l.cantidad++; pintarPedido(); });
+          if(ci){
+            ci.addEventListener('input', () => { const n = Math.trunc(Number(ci.value)); if(n >= 1){ l.cantidad = n; repintarFila(); } });
+            ci.addEventListener('change', () => pintarPedido());
+          }
           const pi = row.querySelector('[data-precio]');
           if(pi) pi.addEventListener('input', () => { l.precio = pi.value === '' ? null : Number(pi.value); repintarFila(); });
           const ep = row.querySelector('[data-editar-precio]');
@@ -318,8 +381,18 @@ function abrirPedidoNuevo({ cliente = null, fecha = todayStr() } = {}){
           const cg = row.querySelector('[data-cambiar-g]');
           if(cg) cg.addEventListener('click', () => { l.ui.g = true; pintarPedido(); });
           const og = row.querySelector('[data-otra-g]');
-          if(og) og.addEventListener('click', () => { l.ui.g = false; st.lineas.splice(st.lineas.indexOf(l) + 1, 0, linea({ menuId: l.menuId, precio: l.precio })); pintarPedido(); });
+          // en una promo la cantidad no cambia: uno de estos pasa a la línea nueva
+          if(og) og.addEventListener('click', () => {
+            l.ui.g = false;
+            if(l.promo) l.cantidad--;
+            st.lineas.splice(st.lineas.indexOf(l) + 1, 0, Object.assign(linea({ menuId: l.menuId, precio: l.precio }), l.promo ? { promo: l.promo } : {}));
+            pintarPedido();
+          });
         });
+        raiz.querySelectorAll('[data-quitar-promo]').forEach(b => b.addEventListener('click', () => {
+          const inst = Number(b.dataset.quitarPromo);
+          st.lineas = st.lineas.filter(l => !(l.promo && l.promo.inst === inst)); st.porDefecto = false; pintarPedido();
+        }));
       };
       const bindear = () => {
         raiz.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => ir(b.dataset.ir)));

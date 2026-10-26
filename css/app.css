@@ -1277,6 +1277,25 @@ body{background:radial-gradient(1000px 520px at 8% -10%,var(--glow),transparent 
 .pn-plato.del-dia b{color:var(--skip-ink)}
 .pn-plato.del-dia:hover{border-color:var(--skip)}
 .pn-plato.del-dia.en{border-color:var(--accent)}
+/* promociones en el pedido: la tarjeta, el encabezado de la promo y sus platos */
+.pn-plato.pn-promo{border-style:dashed;background:color-mix(in srgb,var(--accent) 6%,var(--ctl))}
+.pn-plato.pn-promo b{display:flex;align-items:center;gap:5px}
+.pn-plato.pn-promo b svg{flex:none;color:var(--accent-ink)}
+.pn-plato.pn-promo.en{border-style:solid}
+.pn-promo-h{display:flex;align-items:center;gap:8px;margin-top:2px;padding:2px 2px 0;color:var(--accent-ink)}
+.pn-promo-h b{flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text)}
+.pn-promo-p{font-size:14.5px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--text)}
+.pn-linea.en-promo{margin-left:10px;border-left:3px solid color-mix(in srgb,var(--accent) 60%,var(--line))}
+/* elegir los menús de una promo */
+.pr-ops{display:flex;flex-direction:column;gap:2px;max-height:min(50vh,420px);overflow-y:auto;margin:0 -6px;padding:0 6px}
+.pr-op{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:9px;border:1px solid transparent}
+.pr-op.on{background:color-mix(in srgb,var(--accent) 12%,var(--panel));border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.pr-op .t{flex:1;min-width:0;display:flex;flex-direction:column}
+.pr-op .t b{font-weight:500}
+.pr-op.on .t b{font-weight:600}
+.pr-op .t small{font-size:12px;color:var(--text-3)}
+.pr-op .t small.sin-stock{color:var(--bad-ink);font-weight:600}
+.pr-n{min-width:22px;text-align:center;font-variant-numeric:tabular-nums}
 
 /* ---------- la carta (pestaña Menú) ----------
    Colores fijos (no del tema): se ve igual en claro y en oscuro, y la imagen sale igual. */

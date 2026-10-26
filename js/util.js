@@ -104,7 +104,8 @@ const ICON_PATHS = {
   deshacer: '<path d="M5.5 3.5 2.8 6.2l2.7 2.7"/><path d="M3 6.2h6.3a3.7 3.7 0 0 1 0 7.4H7"/>',
   grafico: '<path d="M2 13.5h12"/><path d="M4 11V8M7 11V4.5M10 11V6.5M13 11V9"/>',
   saltear: '<path d="M3.5 3.8 9.5 8l-6 4.2z"/><path d="M12.2 3.8v8.4"/>',
-  pie: '<circle cx="8.6" cy="2.5" r="1.3"/><path d="M7.6 5.2 6.4 9l2.1 1.8.7 3.6"/><path d="M6.4 9l-1.5 4.6"/><path d="M7.6 5.2l2.3.9 1.3 2.2"/><path d="M7.6 5.2 5.4 6.8 4.7 9"/>'
+  pie: '<circle cx="8.6" cy="2.5" r="1.3"/><path d="M7.6 5.2 6.4 9l2.1 1.8.7 3.6"/><path d="M6.4 9l-1.5 4.6"/><path d="M7.6 5.2l2.3.9 1.3 2.2"/><path d="M7.6 5.2 5.4 6.8 4.7 9"/>',
+  promo: '<path d="M8.6 1.8h4.9a.7.7 0 0 1 .7.7v4.9l-6.8 6.8a1 1 0 0 1-1.4 0L1.8 10a1 1 0 0 1 0-1.4z"/><circle cx="11" cy="5" r="1.1"/>'
 };
 function icon(name, size = 16, cls = ''){
   return `<svg class="${cls}" viewBox="0 0 16 16" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;

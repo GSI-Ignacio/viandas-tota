@@ -66,6 +66,13 @@ function renderStock(bar, main){
     const x = f.m || f.p, p = f.p;
     const attrs = `class="click ${x.activo ? '' : 'off'} ${p && p.stock < 0 ? 'neg' : ''}" tabindex="0" data-busca="${esc(normalizarNombre(x.nombre + ' ' + g.titulo))}" ${x.activo ? '' : 'data-inactivo'}`;
     const tags = `${x.activo ? '' : ' <span class="tag plain">Inactivo</span>'}${p && p.stock < 0 ? ' <span class="tag bad">en negativo</span>' : ''}`;
+    if(f.m && esPromo(f.m)){
+      const m = f.m;
+      return `<tr ${attrs} data-plato="${m.id}">
+        <td><div class="pwho">${icon('promo', 15)}<div><div class="n">${esc(m.nombre)}${tags}</div><div class="s">promo: ${esc(textoPromo(m))}</div></div></div></td>
+        <td class="r">${m.precio != null ? fmtPlata(m.precio) : '<span class="muted">sin precio</span>'}</td>
+        <td class="r"><span class="muted" title="Cada menú que se elige descuenta su propio stock">—</span></td><td class="r"><span class="muted">—</span></td><td></td>${cargar('')}</tr>`;
+    }
     if(f.m){
       const m = f.m, modo = stockDePlato(m), disp = modo === 'otros' ? porcionesDisponibles(m) : null;
       return `<tr ${attrs} data-plato="${m.id}">
@@ -131,18 +138,21 @@ function renderStock(bar, main){
   const pi = main.querySelector('#primer-item'); if(pi) pi.addEventListener('click', () => elegirNuevo());
 }
 
-/* Nuevo: un plato (se vende, con su precio) o algo que no se vende solo (una guarnición, un envase, un insumo). */
+/* Nuevo: un plato (se vende, con su precio), una promoción (un precio por varios menús) o algo que no se vende
+   solo (una guarnición, un envase, un insumo). */
 async function elegirNuevo(){
   const r = await dialogo({
     titulo: '¿Qué querés agregar?',
     html: `<div class="nuevo-ops">
-      <button type="button" class="nuevo-op" data-b="plato">${icon('menu', 18)}<b>Un plato</b><span>Lo que se vende, con su precio: milanesa, tarta, una promo…</span></button>
+      <button type="button" class="nuevo-op" data-b="plato">${icon('menu', 18)}<b>Un plato</b><span>Lo que se vende, con su precio: milanesa, tarta, un combo…</span></button>
+      <button type="button" class="nuevo-op" data-b="promo">${icon('promo', 18)}<b>Una promoción</b><span>Un precio por varios menús que elige el cliente: 2 menús del día por $ 13.000…</span></button>
       <button type="button" class="nuevo-op" data-b="guarnicion">${icon('caja', 18)}<b>Una guarnición</b><span>Se elige en cada pedido: puré, ensalada, arroz…</span></button>
       <button type="button" class="nuevo-op" data-b="producto">${icon('caja', 18)}<b>Otro producto</b><span>Lo que no se vende solo: envases, verduras, insumos…</span></button></div>`,
     botones: [{ id: 'cancelar', label: 'Cancelar' }]
   });
   if(!r) return;
   if(r.boton === 'plato') abrirPlato(null);
+  else if(r.boton === 'promo') abrirPromo(null);
   else abrirProducto(null, null, { guarnicion: r.boton === 'guarnicion' });
 }
 
@@ -354,6 +364,7 @@ function filaComponenteHtml(it, i){
 function abrirPlato(id, { categoria = '', alGuardar = null, seguido = null } = {}){
   const m = id ? menuPorId(id) : null;
   if(id && !m) return;
+  if(esPromo(m)) return abrirPromo(m.id, { alGuardar });
   const propio = m ? productoPropio(m) : null;
   const modo0 = m ? stockDePlato(m) : 'propio';
   const d = m || { nombre: '', descripcion: '', activo: true, precio: null, llevaGuarnicion: false, items: [],
@@ -398,7 +409,7 @@ function abrirPlato(id, { categoria = '', alGuardar = null, seguido = null } = {
   const secStock = `<div class="psec"><h3>Stock</h3>
         <div class="seg pl-modo" role="group" aria-label="Cómo se cuenta el stock">
           <button type="button" data-modo="propio" aria-pressed="${modo0 === 'propio'}"><b>Cuento cuántos hay</b><span>Cargo cuántos tengo y cada pedido descuenta 1</span></button>
-          <button type="button" data-modo="otros" aria-pressed="${modo0 === 'otros'}"><b>Promo o combo</b><span>No tiene stock propio: descuenta de lo que lleva</span></button>
+          <button type="button" data-modo="otros" aria-pressed="${modo0 === 'otros'}"><b>Combo</b><span>Lleva siempre lo mismo: descuenta de lo que lleva</span></button>
           <button type="button" data-modo="no" aria-pressed="${modo0 === 'no'}"><b>No lo cuento</b><span>Siempre se puede pedir</span></button></div>
         <input type="hidden" id="f-pl-modo" value="${modo0}">
         <div class="pl-panel ${modo0 === 'propio' ? '' : 'hidden'}" data-panel="propio">
@@ -412,7 +423,7 @@ function abrirPlato(id, { categoria = '', alGuardar = null, seguido = null } = {
           <p class="help">Con 0 o menos, en la carta aparece desactivado (sin stock); igual se puede pedir y queda en negativo, en rojo.${propio ? ' Para sumar, usá <b>Entrada</b> o <b>Cargar stock</b>.' : ''}</p>
         </div>
         <div class="pl-panel ${modo0 === 'otros' ? '' : 'hidden'}" data-panel="otros">
-          <p class="help">Elegí qué lleva y cuánto de cada cosa. Ej: <i>2 Pizzas comunes</i> descuenta 2 de Pizza común.</p>
+          <p class="help">Elegí qué lleva y cuánto de cada cosa. Ej: <i>2 Pizzas comunes</i> descuenta 2 de Pizza común. Si el cliente elige los menús, es una promoción: creala con <b>Nuevo → Una promoción</b>.</p>
           <div id="pl-comps">${comps.map(filaComponenteHtml).join('')}</div>
           <button class="btn" type="button" id="pl-agregar" style="margin-top:4px">${icon('plus', 13)} Otro producto</button></div>
         <div class="pl-panel ${modo0 === 'no' ? '' : 'hidden'}" data-panel="no">
@@ -423,7 +434,7 @@ function abrirPlato(id, { categoria = '', alGuardar = null, seguido = null } = {
   const cuerpo = lectura ? `<dl class="props" style="margin-top:16px"><dt>Categoría</dt><dd>${esc(d.categoria || '—')}</dd>
           <dt>Guarnición</dt><dd>${d.llevaGuarnicion ? 'Se elige en cada pedido' : 'No lleva'}</dd>
           ${d.descripcion ? `<dt>Descripción</dt><dd>${esc(d.descripcion)}</dd>` : ''}
-          <dt>Stock</dt><dd>${propio ? `Se cuenta, en ${esc(propio.unidad)}` : modo0 === 'otros' ? `Promo o combo: usa ${esc(componentesTxt(d))}` : 'No se cuenta'}</dd></dl>` + secMovs
+          <dt>Stock</dt><dd>${propio ? `Se cuenta, en ${esc(propio.unidad)}` : modo0 === 'otros' ? `Combo: usa ${esc(componentesTxt(d))}` : 'No se cuenta'}</dd></dl>` + secMovs
     : m ? `<div class="pcols ${propio ? '' : 'dos'}" style="margin-top:22px"><div class="pcol">${secPlato}</div><div class="pcol">${secStock}${secBorrar}</div>${propio ? `<div class="pcol">${secMovs}</div>` : ''}</div>`
     : secPlato + secStock;
   abrirPanel({
@@ -550,6 +561,86 @@ function abrirPlato(id, { categoria = '', alGuardar = null, seguido = null } = {
   });
 }
 
+/* ---------- una promoción: un precio por varios menús que el cliente elige ----------
+   "2 menús del día por $ 13.000": cuántos menús, de qué categoría (o cualquier plato) y el precio de todos.
+   Va en la categoría de las promociones; al cargar el pedido se eligen sus menús (pedido-nuevo.js). */
+function abrirPromo(id, { alGuardar = null } = {}){
+  if(!usaPromos()){ toast('Para cargar promociones hay que actualizar la base de datos (actualizar-base.sql).', 'info', 7000); return; }
+  const m = id ? menuPorId(id) : null;
+  if(id && !m) return;
+  const d = m || { nombre: '', descripcion: '', activo: true, precio: null, promo: { cantidad: 2, categoria: categoriaDelDia() } };
+  const lectura = !esDueno();
+  // de qué categoría son los menús: cualquiera, o una de la lista (no la de las promociones)
+  const fuenteHtml = (sel) => { const xs = categorias().filter(c => !/^promo/.test(normalizarNombre(c))); if(sel && !xs.some(c => mismaCategoria(c, sel))) xs.push(sel);
+    return `<option value="" ${sel ? '' : 'selected'}>Cualquier plato</option>${xs.map(c => `<option value="${esc(c)}" ${sel && mismaCategoria(c, sel) ? 'selected' : ''}>${esc(esCategoriaDelDia(c) ? 'Menú del día' : c)}</option>`).join('')}`; };
+  // el nombre que se propone: "2 menús del día", "3 tartas"
+  const nombreSugerido = (n, cat) => n === 1 ? `Promo ${!cat ? 'un plato' : esCategoriaDelDia(cat) ? 'menú del día' : cat.toLowerCase()}`
+    : `${n} ${!cat ? 'platos' : esCategoriaDelDia(cat) ? 'menús del día' : cat.toLowerCase()}`;
+  abrirPanel({
+    ancho: 'medio',
+    titulo: `${icon('promo', 14)} ${m ? 'Promoción' : 'Nueva promoción'}`,
+    html: lectura ? `<h2 class="ptitle">${esc(d.nombre)}</h2><dl class="props" style="margin-top:16px"><dt>Precio</dt><dd>${fmtPlata(d.precio) || '—'}</dd>
+        <dt>Lleva</dt><dd>${esc(textoPromo(d))}</dd>${d.descripcion ? `<dt>Descripción</dt><dd>${esc(d.descripcion)}</dd>` : ''}<dt>Estado</dt><dd>${d.activo ? 'Activa' : 'Desactivada'}</dd></dl>`
+      : `<p class="psub" style="margin-top:0">Un precio por varios menús que elige el cliente. Ej: <b>2 menús del día por $ 13.000</b>.
+        Al cargar el pedido elegís cuáles son: cada uno lleva su parte del precio y descuenta su propio stock.</p>
+      <div class="frow">
+        <div class="field"><label for="f-pr-cant">¿Cuántos menús?${REQ}</label><input type="number" id="f-pr-cant" min="1" max="50" step="1" value="${d.promo.cantidad}" ${m ? '' : 'autofocus'}></div>
+        <div class="field"><label for="f-pr-cat">¿De cuáles?</label><select id="f-pr-cat">${fuenteHtml(d.promo.categoria)}</select></div>
+      </div>
+      <div class="field"><label for="f-pr-precio">Precio de la promo (por todos)${REQ}</label><input type="number" id="f-pr-precio" min="0" step="100" value="${d.precio ?? ''}" placeholder="$">
+        <div class="help" id="pr-cada"></div></div>
+      <div class="field"><label for="f-pr-nombre">Nombre${REQ}</label><input type="text" id="f-pr-nombre" value="${esc(d.nombre || nombreSugerido(d.promo.cantidad, d.promo.categoria))}" autocomplete="off">
+        <div class="help">Así aparece en la carta y al cargar el pedido.</div></div>
+      <div class="field"><label for="f-pr-desc">Descripción (opcional)</label><input type="text" id="f-pr-desc" value="${esc(d.descripcion)}" placeholder="Ej: de lunes a viernes"></div>
+      <label class="check"><input type="checkbox" id="f-pr-activo" ${d.activo ? 'checked' : ''}> Activa (aparece en los pedidos y para la carta)</label>
+      ${m ? `<div class="psec"><button class="btn lg danger" type="button" id="borrar-promo">${icon('borrar', 14)} Eliminar promoción</button></div>` : ''}`,
+    pie: lectura ? '' : `<button class="btn lg" id="cancelar-promo">Cancelar</button><button class="btn lg primary" id="guardar-promo">${m ? 'Guardar cambios' : 'Crear promoción'}</button>`,
+    onMount: (el) => {
+      if(lectura) return;
+      el.querySelector('#cancelar-promo').addEventListener('click', () => cerrarPanel());
+      const cant = el.querySelector('#f-pr-cant'), cat = el.querySelector('#f-pr-cat'), precio = el.querySelector('#f-pr-precio'), nombre = el.querySelector('#f-pr-nombre');
+      const n = () => Math.trunc(Number(cant.value));
+      // lo que sale cada menú, y el nombre sugerido mientras no lo cambien a mano
+      let sugerido = nombre.value === nombreSugerido(d.promo.cantidad, d.promo.categoria) ? nombre.value : null;
+      const actualizar = () => {
+        const p = Number(precio.value), k = n();
+        el.querySelector('#pr-cada').textContent = p > 0 && k >= 1 ? `Cada menú queda a ${fmtPlata(Math.round(p / k * 100) / 100)}.` : '';
+        if(sugerido != null && k >= 1){ const s = nombreSugerido(k, cat.value); sugerido = s; if(nombre.value !== s){ nombre.value = s; nombre.dispatchEvent(new Event('input', { bubbles: true })); } }
+      };
+      [cant, cat, precio].forEach(x => { x.addEventListener('input', actualizar); x.addEventListener('change', actualizar); });
+      nombre.addEventListener('input', () => { if(sugerido != null && nombre.value !== sugerido) sugerido = null; });
+      actualizar();
+      const existente = () => { const k = normalizarNombre(nombre.value); return k ? state.menus.find(x => x.id !== (m && m.id) && normalizarNombre(x.nombre) === k) : null; };
+      const guardar = el.querySelector('#guardar-promo');
+      formulario(el, { botones: [guardar], cambios: !!m, completo: () => {
+        if(!(n() >= 1 && n() <= 50 && Number(cant.value) === n())) return marcarFalta(cant, 'Poné cuántos menús entran (de 1 a 50).');
+        if(!(Number(precio.value) > 0)) return marcarFalta(precio, 'Poné el precio de la promo.');
+        if(existente()) return marcarFalta(nombre, `Ya hay un plato o una promo ${esc(existente().nombre)}: usá otro nombre.`);
+        return true;
+      } });
+      guardar.addEventListener('click', async () => {
+        guardar.disabled = true;
+        try{
+          const categoria = m && m.categoria ? m.categoria : await agregarCategoria(categoriaPromos()) || categoriaPromos();
+          const g = await guardarMenu(m ? m.id : null, { nombre: nombre.value.trim(), descripcion: el.querySelector('#f-pr-desc').value.trim(), activo: el.querySelector('#f-pr-activo').checked,
+            precio: precio.value, categoria, llevaGuarnicion: false, items: [], promo: { cantidad: n(), categoria: cat.value } });
+          refrescar();
+          if(alGuardar) alGuardar(g);
+          toast(m ? 'Promoción actualizada.' : alGuardar ? `Promoción <b>${esc(g.nombre)}</b> creada.`
+            : `Promoción <b>${esc(g.nombre)}</b> creada. Ya aparece al cargar un pedido; para que salga en la carta, sumala en la sección ${esc(categoria)} del Menú.`, 'ok', m || alGuardar ? null : 8000);
+          cerrarPanel();
+        }catch(e){ toastError('No se pudo guardar la promoción', e); guardar.disabled = false; }
+      });
+      const borrar = el.querySelector('#borrar-promo');
+      if(borrar) borrar.addEventListener('click', async () => {
+        if(!(await confirmar('Eliminar promoción', `¿Eliminar <b>${esc(m.nombre)}</b>? Los pedidos que ya la usaron quedan como están.`, { ok: 'Eliminar', peligro: true }))) return;
+        try{ await eliminarMenu(m); toast('Promoción eliminada.'); cerrarPanel(); refrescar(); }
+        catch(e){ toastError('No se pudo eliminar', e); }
+      });
+    }
+  });
+}
+
 /* ---------- carga rápida de stock: elegir de la lista y poner la cantidad ---------- */
 let cargaTipo = 'entrada';
 /* Lo que se puede cargar: el stock de cada plato (los que todavía no se cuentan empiezan a contarse
@@ -560,7 +651,7 @@ function opcionesCargaHtml(sel){
   for(const m of state.menus.filter(x => x.activo).sort(ordenMenus)){
     const p = productoPropio(m);
     if(p && p.activo){ if(!vistos.has(p.id)){ vistos.add(p.id); platos.push(op(p.id, `${esc(m.nombre)} · hay ${fmtNum(p.stock)} ${esc(p.unidad)}`)); } }
-    else if(!m.items.length) platos.push(op('m:' + m.id, `${esc(m.nombre)} · empieza a contarse`));
+    else if(!m.items.length && !esPromo(m)) platos.push(op('m:' + m.id, `${esc(m.nombre)} · empieza a contarse`));
   }
   const resto = state.productos.filter(p => !vistos.has(p.id) && (p.activo || p.id === sel));
   const prod = (p) => op(p.id, `${esc(p.nombre)} · hay ${fmtNum(p.stock)} ${esc(p.unidad)}`);
@@ -769,7 +860,7 @@ function abrirPegarCarta(texto, resultado){
             <td><select class="inp sm" data-c="producto" aria-label="Producto del stock" style="width:200px">
               <option value="">${existe(it) ? 'Como está' : 'No lo cuento'}</option>
               <option value="__crear" ${sugerido(it) === '__crear' ? 'selected' : ''}>Cuento cuántos hay</option>
-              <optgroup label="Promo o combo: descuenta de">${prods.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</optgroup></select></td></tr>`).join('')}</tbody></table></div></div>
+              <optgroup label="Combo: descuenta de">${prods.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</optgroup></select></td></tr>`).join('')}</tbody></table></div></div>
         ${leida.guarniciones.length ? `<div class="psec phero"><h3>Guarniciones <span class="n">se agregan como productos del stock</span></h3>
           <div class="days" style="gap:8px">${leida.guarniciones.map((g, i) => `<label class="check" style="border:1px solid var(--line-2);border-radius:8px;padding:6px 10px">
             <input type="checkbox" data-g="${i}" checked> ${esc(g)}</label>`).join('')}</div></div>` : ''}`}`,

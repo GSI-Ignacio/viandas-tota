@@ -116,7 +116,8 @@ function seccionHtml(s, { edita, imagen }){
     const fijo = esCategoriaDelDia(cat) ? state.config.precioMenuDia : normalizarNombre(cat) === 'sin tacc' ? state.config.precioMenuSinTacc : null;
     const unico = fijo != null || (activos.length > 1 && precios.size === 1 && [...precios][0] != null);
     if(unico) precioSec = fmtPlata(fijo != null ? fijo : [...precios][0]);
-    const extra = (m) => `${m.llevaGuarnicion ? '<span class="c-gn"> +&nbsp;guarnición</span>' : ''}${m.descripcion ? `<small>${esc(m.descripcion)}</small>` : ''}`;
+    // una promoción sin descripción dice qué lleva: "2 menús del día a elección"
+    const extra = (m) => `${m.llevaGuarnicion ? '<span class="c-gn"> +&nbsp;guarnición</span>' : ''}${m.descripcion ? `<small>${esc(m.descripcion)}</small>` : esPromo(m) ? `<small>${esc(textoPromo(m))}</small>` : ''}`;
     const off = (m) => { const mot = motivoApagado(m); return mot ? `<span class="c-off">${mot}: no sale en la imagen</span>` : ''; };
     const cls = (m) => motivoApagado(m) ? 'off' : '';
     if(unico){
@@ -286,7 +287,10 @@ function dialogoAgregarACarta(secId){
         <select id="ca-cat"><option value="">Elegí una categoría</option>${categorias().map(c => `<option value="${esc(c)}" ${cat && mismaCategoria(c, cat) ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>`}
       <div class="pn-buscar" style="margin-bottom:8px">${icon('buscar', 15)}<input class="inp" id="ca-busca" placeholder="Buscar…" autocomplete="off"></div>
       <div class="ca-lista" id="ca-lista">${listaHtml(new Set(ya))}</div>`,
-    botones: [{ id: 'nuevo', label: guarn ? 'Crear guarnición nueva' : 'Crear plato nuevo' }, { id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Listo', clase: 'primary', domId: 'ca-agregar' }],
+    // en la sección de las promociones también se puede crear una promoción (un precio por varios menús)
+    botones: [{ id: 'nuevo', label: guarn ? 'Crear guarnición nueva' : 'Crear plato nuevo' },
+      ...(!guarn && usaPromos() && cat && /^promo/.test(normalizarNombre(cat)) ? [{ id: 'promo', label: 'Crear promoción' }] : []),
+      { id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Listo', clase: 'primary', domId: 'ca-agregar' }],
     onMount: (el) => {
       const bq = el.querySelector('#ca-busca'), lista = el.querySelector('#ca-lista'), btn = el.querySelector('#ca-agregar');
       const tildados = () => [...lista.querySelectorAll('.ca-op input')].filter(x => x.checked).map(x => x.value);
@@ -304,10 +308,11 @@ function dialogoAgregarACarta(secId){
     }
   }).then(async (r) => {
     if(!r) return;
+    const sumar = (id, catNueva) => cambiarCarta(c => { const x = c.secciones.find(y => y.id === secId); if(!x) return;
+      if(!guarn && !x.categoria && catNueva) x.categoria = catNueva;
+      x.items.push(guarn ? { productoId: id } : { menuId: id }); });
+    if(r.boton === 'promo'){ abrirPromo(null, { alGuardar: (m) => sumar(m.id, m.categoria) }); return; }
     if(r.boton === 'nuevo'){
-      const sumar = (id, catNueva) => cambiarCarta(c => { const x = c.secciones.find(y => y.id === secId); if(!x) return;
-        if(!guarn && !x.categoria && catNueva) x.categoria = catNueva;
-        x.items.push(guarn ? { productoId: id } : { menuId: id }); });
       if(!guarn){ abrirPlato(null, { categoria: cat || '', alGuardar: (m) => sumar(m.id, m.categoria) }); return; }
       const q = await dialogo({ titulo: 'Guarnición nueva', html: `<div class="field"><label for="f-gn">Nombre${REQ}</label><input type="text" id="f-gn" placeholder="Ej: Calabaza al horno" autofocus></div>`,
         botones: [{ id: 'cancelar', label: 'Cancelar' }, { id: 'ok', label: 'Crear', clase: 'primary' }],

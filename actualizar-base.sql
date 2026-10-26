@@ -7,7 +7,7 @@
 -- vuelve a hacer y no se tocan los datos.
 --
 -- Cada actualización nueva se agrega al final de este archivo.
--- Adentro van, en orden, las versiones 5 a 22. Las anteriores (v2 a v4) ya están corridas;
+-- Adentro van, en orden, las versiones 5 a 23. Las anteriores (v2 a v4) ya están corridas;
 -- quedan en la carpeta migraciones/ como historial, junto con cada versión por separado.
 -- ============================================================
 
@@ -1382,6 +1382,32 @@ begin;
 alter table menus add column if not exists eliminado_at timestamptz;
 
 create or replace function version_base() returns integer language sql immutable as $$ select 22 $$;
+grant execute on function version_base() to authenticated;
+
+notify pgrst, 'reload schema';
+
+commit;
+
+
+-- ============================================================
+-- v23 — promociones: un precio por varios menús que el cliente elige
+--   Una promoción es un plato de la carta ("2 menús del día por $ 13.000") con
+--   cuántos menús entran y de qué categoría (vacío = cualquier plato). No se pide
+--   sola: al cargar el pedido se eligen sus menús, y cada uno va con su parte del
+--   precio y descuenta su propio stock.
+-- ============================================================
+
+begin;
+
+alter table menus add column if not exists promo_cantidad integer;
+alter table menus add column if not exists promo_categoria text;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'menus_promo_cantidad_check') then
+    alter table menus add constraint menus_promo_cantidad_check check (promo_cantidad is null or promo_cantidad between 1 and 50);
+  end if;
+end $$;
+
+create or replace function version_base() returns integer language sql immutable as $$ select 23 $$;
 grant execute on function version_base() to authenticated;
 
 notify pgrst, 'reload schema';
